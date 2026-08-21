@@ -52,7 +52,7 @@ We aim for 10 iterations via v0.0 -> v0.9
 
 ## v0 Build Order
 
-Current position: step 1, not started.
+Current position: step 1 complete. Step 2 not started.
 
 1. `schema` — Event enum, entity types, wire messages, TypeScript generation working.
 2. `core` — entities, fixed-step movement, circle collision, arena bounds. Headless.
