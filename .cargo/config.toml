@@ -1,0 +1,4 @@
+# ts-rs writes generated TypeScript here. The path is relative to this file's
+# parent, the workspace root. Regenerate with `cargo test -p schema`.
+[env]
+TS_RS_EXPORT_DIR = { value = "client/src/gen", relative = true }

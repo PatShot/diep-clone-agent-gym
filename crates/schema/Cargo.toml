@@ -1,0 +1,16 @@
+[package]
+name = "schema"
+description = "Shared wire types for the tank coordination sandbox. Depends on nothing structural."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+ts-rs = { workspace = true }
+
+[features]
+default = []
