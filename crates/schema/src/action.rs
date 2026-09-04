@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::belief::{Inbound, Outbound};
-use crate::command::Command;
+use crate::command::{Command, Origin};
 use crate::entity::{Class, EntityView, Stats};
 use crate::geom::Vec2;
 use crate::ids::{AgentId, EntityId, TeamId, Tick};
@@ -117,4 +117,21 @@ impl Action {
     pub fn idle() -> Self {
         Self::default()
     }
+}
+
+/// One tick's input. Actions from policies, commands from control centers.
+///
+/// This is what `World::step` consumes, and it is also the whole of a replay. A
+/// deterministic simulation plus a seed plus this, tick by tick, reproduces a match
+/// exactly — which is why a replay file is megabytes rather than gigabytes. It
+/// records what the twelve agents decided, not what the two thousand entities did.
+///
+/// It lives in `schema` rather than in the simulation because the replay sink and
+/// anything else that records or feeds a match needs to name it without depending
+/// on the simulation crate.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "schema.ts")]
+pub struct Inputs {
+    pub actions: Vec<(AgentId, Action)>,
+    pub commands: Vec<(TeamId, Origin, Command)>,
 }

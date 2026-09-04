@@ -21,7 +21,7 @@ pub mod sense;
 pub mod u64str;
 pub mod wire;
 
-pub use action::{Action, Choice, Control, Observation, SelfView, StatKind};
+pub use action::{Action, Choice, Control, Inputs, Observation, SelfView, StatKind};
 pub use belief::{
     BeliefMsg, BeliefOverlay, CellState, Inbound, Intent, Interest, MapCell, Outbound, Recipient,
     Track,

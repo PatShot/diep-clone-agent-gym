@@ -12,6 +12,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::action::Inputs;
 use crate::belief::BeliefOverlay;
 use crate::command::Command;
 use crate::entity::{EntityDelta, EntityView};
@@ -124,8 +125,13 @@ pub enum ClientMsg {
     Resync,
 }
 
-/// One line of a replay file. The file is the event stream plus the frames derived
-/// from it, so the viewer decodes a replay with the same decoder it uses live.
+/// One line of a replay file.
+///
+/// A replay records **inputs**, not frames. The simulation is deterministic, so a
+/// seed plus the per-tick `Inputs` reproduces a match exactly, and that is roughly
+/// three orders of magnitude smaller than writing what every entity looked like on
+/// every tick. `Frame` remains for an exported, directly-viewable replay, which is
+/// derived from an input log rather than recorded alongside it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "t", rename_all = "snake_case")]
 #[ts(export, export_to = "schema.ts")]
@@ -137,5 +143,15 @@ pub enum ReplayLine {
     },
     Frame {
         frame: ServerMsg,
+    },
+    /// One tick's inputs, verbatim.
+    Inputs {
+        tick: Tick,
+        inputs: Inputs,
+    },
+    /// The previous tick's inputs, repeated. Scripted policies hold an action for
+    /// many ticks at a time, so this is most of a log.
+    Repeat {
+        ticks: u32,
     },
 }

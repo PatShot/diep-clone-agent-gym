@@ -161,6 +161,20 @@ last_damaged: Tick | null, };
 export type Inbound = { from: AgentId, sent: Tick, payload: BeliefMsg, };
 
 /**
+ * One tick's input. Actions from policies, commands from control centers.
+ *
+ * This is what `World::step` consumes, and it is also the whole of a replay. A
+ * deterministic simulation plus a seed plus this, tick by tick, reproduces a match
+ * exactly — which is why a replay file is megabytes rather than gigabytes. It
+ * records what the twelve agents decided, not what the two thousand entities did.
+ *
+ * It lives in `schema` rather than in the simulation because the replay sink and
+ * anything else that records or feeds a match needs to name it without depending
+ * on the simulation crate.
+ */
+export type Inputs = { actions: Array<[AgentId, Action]>, commands: Array<[TeamId, Origin, Command]>, };
+
+/**
  * What an agent intends to do. Cheap to send and the highest value per byte on a
  * capped link, because it lets a teammate plan against it.
  */
@@ -282,10 +296,15 @@ export type Recipient = { "to": "agent", agent: AgentId, } | { "to": "team", tea
 export type Region = { "shape": "disc", center: Vec2, radius: number, } | { "shape": "rect", min: Vec2, max: Vec2, } | { "shape": "annulus", center: Vec2, inner: number, outer: number, } | { "shape": "whole_arena" };
 
 /**
- * One line of a replay file. The file is the event stream plus the frames derived
- * from it, so the viewer decodes a replay with the same decoder it uses live.
+ * One line of a replay file.
+ *
+ * A replay records **inputs**, not frames. The simulation is deterministic, so a
+ * seed plus the per-tick `Inputs` reproduces a match exactly, and that is roughly
+ * three orders of magnitude smaller than writing what every entity looked like on
+ * every tick. `Frame` remains for an exported, directly-viewable replay, which is
+ * derived from an input log rather than recorded alongside it.
  */
-export type ReplayLine = { "t": "header", protocol: number, arena: ArenaInfo, match_info: MatchInfo, } | { "t": "frame", frame: ServerMsg, };
+export type ReplayLine = { "t": "header", protocol: number, arena: ArenaInfo, match_info: MatchInfo, } | { "t": "frame", frame: ServerMsg, } | { "t": "inputs", tick: Tick, inputs: Inputs, } | { "t": "repeat", ticks: number, };
 
 /**
  * A role a CC can assign. The set is deliberately small. Role entropy across a
