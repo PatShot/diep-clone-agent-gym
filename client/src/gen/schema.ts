@@ -65,6 +65,11 @@ export type Choice = { "choice": "class", class: Class, } | { "choice": "stat", 
 /**
  * Tank class. Chosen once and irreversible. The sense radius difference is the
  * point: a siege tank is nearly blind and depends on teammates to see for it.
+ *
+ * Not used in v0. Every tank is identical, with the same sense radius and the same
+ * base stats, so that range-limited communication is the only asymmetry under study.
+ * The type is defined now because it is carried in `StyleGroup` and `SelfView`, and
+ * adding it later would be a wire change.
  */
 export type Class = "scout" | "line" | "siege";
 

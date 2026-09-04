@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/schema"]
+members = ["crates/schema", "crates/core"]
 
 [workspace.package]
 version = "0.0.1"
@@ -13,6 +13,12 @@ repository = "https://github.com/pat/die_pcloud"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 ts-rs = "12.0"
+slotmap = "1.0"
+# Pinned exactly, and Cargo.lock is checked in. `StdRng` is documented as not
+# reproducible across rand releases, so the determinism invariant rests on the
+# pin rather than on the crate's own guarantees. Bumping this is a decision about
+# whether recorded matches still replay, not a routine dependency update.
+rand = { version = "=0.10.2", default-features = false, features = ["std", "std_rng"] }
 
 [profile.release]
 lto = "thin"

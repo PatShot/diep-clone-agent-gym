@@ -1,0 +1,29 @@
+# The directory is `crates/core`, per the layout in AGENTS.md, but the package is
+# `sim-core`. A crate named `core` shadows the sysroot crate of that name in every
+# dependent, so `core::mem` there fails to resolve against our crate instead of the
+# standard library. The error message names the wrong crate and wastes an afternoon.
+[package]
+name = "sim-core"
+description = "The headless simulation. Entities, fixed-step physics, collision, combat."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "sim_core"
+path = "src/lib.rs"
+
+[dependencies]
+schema = { path = "../schema" }
+slotmap = { workspace = true }
+rand = { workspace = true }
+
+[dev-dependencies]
+# The determinism test compares serialized event streams, which is also how the
+# replay file and the database will compare them.
+serde_json = { workspace = true }
+
+[features]
+default = []

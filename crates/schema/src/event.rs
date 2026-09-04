@@ -9,7 +9,7 @@
 //! in separate columns so a query can filter by kind without parsing JSON.
 //!
 //! Position updates are not events. Ten tanks, two hundred shapes, and bullets at
-//! 30 Hz is roughly ten thousand rows per second, which would drown this table.
+//! 25 Hz is roughly ten thousand rows per second, which would drown this table.
 //! Kinematics go to their own table.
 
 use serde::{Deserialize, Serialize};
