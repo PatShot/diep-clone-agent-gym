@@ -120,7 +120,10 @@ recycled slot never aliases a dead entity. Use a slotmap.
 
 There are forty-five classes in diep.io which form an interesting problem of selecting the right team via the Command Center.
 
-However, for the current v0 we need just a simple tank with eight stats. 
+However, for the current v0 we need just a simple tank with eight stats.
+Every tank shares the same sense radius, field of view, and base stats; class is not chosen and not used. The sequencing argument is that two coordination pressures — range-limited communication and role differentiation — running at once makes neither measurable. The Class enum stays in the schema and stays None through v0, so introducing it later costs no migration.
+
+Caveat to the above statement: the communication radius is still greater than the sense and field of view.
 
 **Eight stats**: Health Regen, Max Health, Body Damage, Bullet Speed, Bullet Penetration, Bullet Damage, Reload, Movement Speed.
 
@@ -129,6 +132,8 @@ However, for the current v0 we need just a simple tank with eight stats.
 - 1 SP every 3 levels from Level 30 to Level 45.
 - Maximum SP: 33.
 - Each stat caps at 7 upgrades
+
+These Eight stats are to be selected by the policy and strategy from command center after the mechanism is built.
 
 **Tank types** - There are many tank types, but the focus is on 4 after v1.
 
@@ -158,6 +163,8 @@ other's aim. Agreement requires a message.
 **Irreversible class commitment.** Five scouts lose. Five snipers may lose. The team
 must divide roles before anyone knows what the enemy picked. This is a commitment game
 played over a lossy link.
+
+Irreversible class commitment is not active in v0. Check Progression heading. The mechanic is still wanted; it is deferred, not dropped.
 
 **Contested centre.** High-tier shapes exist only in the nest. Someone farms, someone
 screens the farmer, someone watches the flanks. Nobody does two of those.
@@ -200,11 +207,13 @@ In rough order of value:
 - Mixed pixels. A beam straddling an object edge returns an intermediate range. Cheap
   to fake, and it breaks naive clustering the way real data does.
 
-**Rates.** Decouple every loop. Physics 30 Hz. Sensor 10 Hz. Comms 5 Hz. Decision 5 Hz.
+**Rates.** Decouple every loop. Physics 25 Hz. Sensor 10 Hz. Comms 5 Hz. Decision 5 Hz.
 
 Ten tanks at 360 rays and 10 Hz is 36,000 rays per second. Free on a CPU with rayon.
-The mismatch between a 30 Hz world and a 10 Hz sensor is itself instructive: the world
+The mismatch between a 25 Hz world and a 10 Hz sensor is itself instructive: the world
 moves between scans and the agent must live with that.
+
+Have Physics, Sensors, Comms, and Decision have individual multipliers to these constants within a config file that can change be changed at whim, providing richer simulations scenarios. 
 
 **Frames.** Store a scan in polar form in the sensor frame, with the pose stamp
 attached. Convert to Cartesian world coordinates only when needed. Keeping the world,
@@ -511,7 +520,7 @@ Sinks: SQLite, replay file, WebSocket fan-out, live metrics.
 ### Volume
 
 Position updates are not events in this sense. Ten tanks plus two hundred shapes plus
-bullets at 30 Hz is roughly ten thousand rows per second. Putting that through the
+bullets at 25 Hz is roughly ten thousand rows per second. Putting that through the
 discrete event table makes the table useless for analysis.
 
 Split them. Discrete events go to `events`. Kinematics go to a separate wide, compact
@@ -681,7 +690,7 @@ Every one of these is optimized for fidelity to diep.io. Fidelity is what we are
 discarding. None has a seam where AI tanks, pluggable world models, range-limited
 comms, or a control center would go.
 
-**Outstanding: the constants extraction pass.** Not done.
+**Outstanding: the constants extraction pass.**  A provisional set lives in `crates/core/src/constants.rs`, with values traceable to STATS.md marked STATS and the rest marked PROVISIONAL alongside the reasoning that produced them. The reference pass against `diepcustom/src/Const/` remains undone.
 
 ---
 

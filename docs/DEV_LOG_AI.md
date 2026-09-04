@@ -1,7 +1,7 @@
 # AI Development Log
 
 Written by the assistant, one entry per session. Everything else in `docs/` is human
-domain and is not edited from a session.
+domain and is not edited from a session, unless specified elsewhere in AGENTS.md.
 
 This file records what was built, what was decided, and what was found. Where a
 session concludes that a specification needs changing, the proposed change is written
