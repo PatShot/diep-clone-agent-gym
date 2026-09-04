@@ -17,10 +17,6 @@ participant has a limited sensing range and a limited signal range. Teams race t
 point total. The tanks and the CC must work out a strategy together, over a link that
 does not always exist.
 
-The design rule that governs everything below: **five independent tanks should
-reliably lose to five coordinated ones.** A mechanic that does not serve that rule
-does not belong in the sandbox.
-
 The sandbox must be flexible enough that different people can research different
 approaches. That means the interesting parts — world model, policy, message codec,
 channel physics, objective — are all traits with swappable implementations, and the
@@ -41,19 +37,29 @@ The alternative — elimination with a shared respawn budget — is sharper to w
 worse for gathering statistics, because it compresses a match into two or three
 decisive fights. Keep it as a second `Objective` implementation, not the default.
 
-There is no time limit. A stalled match is a result.
+We time limit the match to 90 minutes. 
+The match can end in three states for the team: Win, Draw, Loss.
+
+| Result | Definition |
+|---|---|
+| Win | Reach 10,000 points (or other winning criteria) |
+| Draw | Time reaches 90 minutes without either Win or Loss |
+| Loss | Other team has scored the Win condition |
 
 ---
 
 ## Arena
 
+A unit is an abstract definition of size. To scale, we scale along the unit.
+As an example, set 1 unit = 20px, and the scale accordingly.
+
 A square, 1000 units on a side. Origin at the top-left corner.
+
+*Shapes* spawn within the arena anywhere per specific time delay `shape_spawn_tick`.
 
 **Bases.** Two squares, 200 units on a side, at opposite vertices. Team A occupies the
 northwest corner, Team B the southeast. This is the original diep.io Team Deathmatch
-layout, and it beats the modern edge-strip layout for our purposes: opposite corners
-create a long diagonal with a flank on either side, where strips create a front line.
-Front lines do not require coordination.
+layout.
 
 A base is a sanctuary. Enemy tanks cannot enter it and enemy fire is destroyed at its
 boundary. This removes spawn camping and gives a losing team somewhere to regroup, so
@@ -61,7 +67,7 @@ one bad engagement does not decide the match.
 
 **Nest.** A disc of radius 150 at the arena centre. The only place high-tier shapes
 spawn. Because the richest resource sits equidistant from both bases, farming and
-fighting become the same decision.
+fighting become the same decision. 
 
 **Wings.** Optional secondary farming areas at the midpoints of the northeast and
 southwest edges. Off by default. They exist so a researcher can add a second and third
@@ -112,22 +118,28 @@ recycled slot never aliases a dead entity. Use a slotmap.
 
 ## Progression
 
-diep.io's progression is far too rich. Forty-five levels, eight stat categories, and
-dozens of tank classes produces a build-optimisation problem, not a coordination
-problem. Cut it down until only the joint decisions remain.
+There are forty-five classes in diep.io which form an interesting problem of selecting the right team via the Command Center.
 
-**Three classes**, chosen once at a level threshold, irreversible:
+However, for the current v0 we need just a simple tank with eight stats. 
 
-| Class | Speed | Health | Damage | Sense radius |
-|---|---|---|---|---|
-| Scout | High | Low | Low | 180 |
-| Line | Medium | Medium | Medium | 120 |
-| Siege | Low | High | High | 80 |
+**Eight stats**: Health Regen, Max Health, Body Damage, Bullet Speed, Bullet Penetration, Bullet Damage, Reload, Movement Speed.
 
-The sense radius column is doing real work. A scout is a sensor platform. A siege tank
-is nearly blind and depends on others to see for it. That dependency is the point.
+- 1 Skill Point (SP) per level up to Level 28.
+- 1 SP at Level 30.
+- 1 SP every 3 levels from Level 30 to Level 45.
+- Maximum SP: 33.
+- Each stat caps at 7 upgrades
 
-**Four stats**, not eight: damage, reload, speed, health. One point per level.
+**Tank types** - There are many tank types, but the focus is on 4 after v1.
+
+### Tier 2 Tanks:
+
+| Type | Description |
+|---|---|
+| Twin | Grants an extra frontal cannon while bullet power is slightly reduced.|
+| Sniper | Grants a broader Field of View. Reload speed is low, movement is slowed.|
+| Machine Gun | Sprays bullets from a trapezoid up front. Double the rate of a basic tank. Less accurate but covers larger area|
+| Flank Guard | Adds a Cannon to the rear. Allows tank to shoot in both directions. Because both cannons have same recoil, Flank Guard has zero recoil|
 
 **No bosses, no crashers, no drone-type projectiles.** Add them only if the sandbox
 gets stale.
@@ -136,14 +148,14 @@ gets stale.
 
 ## Coordination Pressures
 
-Each mechanic below exists because it makes solo play lose.
+Each mechanic below exists because it makes solo play lose. The objective is to study these tactics play out against each other.
 
 **Focus fire.** Tanks regenerate health a few seconds after last taking damage. One
-tank alone cannot out-damage a healthy enemy's regeneration. Two can. Killing therefore
+tank alone cannot out-damage a healthy enemy's regeneration (subject to stats). Two can. Killing therefore
 requires two tanks agreeing on a target inside a window, and neither can see the
 other's aim. Agreement requires a message.
 
-**Irreversible class commitment.** Five scouts lose. Five siege tanks lose. The team
+**Irreversible class commitment.** Five scouts lose. Five snipers may lose. The team
 must divide roles before anyone knows what the enemy picked. This is a commitment game
 played over a lossy link.
 
