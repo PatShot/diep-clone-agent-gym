@@ -351,10 +351,16 @@ respawn_at: Tick | null, };
 export type ServerMsg = { "t": "hello", protocol: number, arena: ArenaInfo, match_info: MatchInfo, } | { "t": "snapshot", tick: Tick, entities: Array<EntityView>, scores: Array<number>, events?: Array<Event>, beliefs?: Array<BeliefOverlay> | null, } | { "t": "delta", tick: Tick, changed?: Array<EntityDelta>, removed?: Array<EntityId>, scores?: Array<number> | null, events?: Array<Event>, beliefs?: Array<BeliefOverlay> | null, } | { "t": "match_over", winner: TeamId | null, tick: Tick, scores: Array<number>, } | { "t": "error", message: string, };
 
 /**
- * Shape tier. Common shapes scatter across the arena. High tier shapes spawn only
- * in the nest, which is what makes the arena centre worth contesting.
+ * Shape tier, ordered by worth. Squares and triangles scatter across the arena.
+ * Pentagons and alpha pentagons spawn only in the nest, which is what makes the
+ * arena centre worth contesting.
+ *
+ * Named after diep.io's polygons because the viewer draws them as polygons and a
+ * tier called `High` would have to be translated at the boundary anyway. The
+ * ordering is deliberate: `Square < Triangle < Pentagon`, so a policy can compare
+ * tiers without a lookup table.
  */
-export type ShapeTier = "common" | "high";
+export type ShapeTier = "square" | "triangle" | "pentagon" | "alpha_pentagon";
 
 export type StatKind = "damage" | "reload" | "speed" | "health";
 

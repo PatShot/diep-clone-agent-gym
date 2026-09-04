@@ -21,14 +21,25 @@ pub enum Kind {
     ControlCenter,
 }
 
-/// Shape tier. Common shapes scatter across the arena. High tier shapes spawn only
-/// in the nest, which is what makes the arena centre worth contesting.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+/// Shape tier, ordered by worth. Squares and triangles scatter across the arena.
+/// Pentagons and alpha pentagons spawn only in the nest, which is what makes the
+/// arena centre worth contesting.
+///
+/// Named after diep.io's polygons because the viewer draws them as polygons and a
+/// tier called `High` would have to be translated at the boundary anyway. The
+/// ordering is deliberate: `Square < Triangle < Pentagon`, so a policy can compare
+/// tiers without a lookup table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export, export_to = "schema.ts")]
 pub enum ShapeTier {
-    Common,
-    High,
+    Square,
+    Triangle,
+    Pentagon,
+    /// The nest's prize. Barely larger than a pentagon and worth many times more,
+    /// so it raises the points a defender earns per unit of ground held rather
+    /// than dominating the map by size.
+    AlphaPentagon,
 }
 
 /// Tank class. Chosen once and irreversible. The sense radius difference is the
