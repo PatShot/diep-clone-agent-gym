@@ -15,6 +15,10 @@ fn a_full_length_match_stays_finite_and_bounded() {
         tanks_per_team: 5,
         match_id: "soak".into(),
         config_hash: 1,
+        // On here, so the soak keeps exercising the recording path. It is off by
+        // default: nothing in v0 consumes the rows, and left on they accumulate
+        // until a caller drains them.
+        record_kinematics: true,
     });
 
     // Seed 200 shapes by hand. The spawner is step 3; this only needs traffic.

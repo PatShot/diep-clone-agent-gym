@@ -32,6 +32,7 @@ fn spec(seed: u64) -> WorldSpec {
         tanks_per_team: 5,
         match_id: "test".into(),
         config_hash: 7,
+        record_kinematics: false,
     }
 }
 
@@ -815,7 +816,12 @@ fn one_seed_produces_one_event_stream() {
 
 #[test]
 fn kinematics_stay_out_of_the_event_stream() {
-    let mut w = World::new(spec(2));
+    // Recording is off by default; this test is about where the rows go, not about
+    // whether they are collected, so it asks for them explicitly.
+    let mut w = World::new(WorldSpec {
+        record_kinematics: true,
+        ..spec(2)
+    });
     w.step(&Inputs::default());
     let events = w.drain_events();
     let rows = w.drain_kinematics();
@@ -1079,4 +1085,29 @@ fn a_shape_drifting_into_a_corner_base_stays_in_the_world() {
             e.pos
         );
     }
+}
+
+#[test]
+fn kinematics_do_not_accumulate_unless_asked_for() {
+    // They are pure derived data — a re-simulation from the input log rebuilds any
+    // trajectory — and nothing in v0 reads them. Left recording, a forty-minute run
+    // grows a vector by roughly 120 million rows and nobody notices until the
+    // machine does.
+    let mut w = World::new(spec(3));
+    for _ in 0..2_000 {
+        w.step(&Inputs::default());
+    }
+    assert!(w.drain_kinematics().is_empty());
+
+    let mut w = World::new(WorldSpec {
+        record_kinematics: true,
+        ..spec(3)
+    });
+    for _ in 0..10 {
+        w.step(&Inputs::default());
+    }
+    assert!(
+        !w.drain_kinematics().is_empty(),
+        "the flag should still turn recording on"
+    );
 }

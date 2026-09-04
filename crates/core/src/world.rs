@@ -37,8 +37,8 @@ use std::collections::BTreeMap;
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use schema::{
-    Action, AgentId, Cause, Command, EntityId, EntityView, Event, Kind, Kinematic, Observation,
-    Origin, SelfView, ShapeTier, Stats, TeamId, Tick, Vec2,
+    AgentId, Cause, EntityId, EntityView, Event, Kind, Kinematic, Observation, SelfView,
+    ShapeTier, Stats, TeamId, Tick, Vec2,
 };
 
 use crate::arena::ArenaSpec;
@@ -64,6 +64,14 @@ pub struct WorldSpec {
     /// Pins the configuration that produced this run, so a replay that does not
     /// reproduce is detectable rather than merely suspected.
     pub config_hash: u64,
+    /// Whether to accumulate a kinematics row per moving entity per tick.
+    ///
+    /// Off by default, and that is the important part. The rows are pure derived
+    /// data — a re-simulation from the input log rebuilds any trajectory at any rate
+    /// — and nothing in v0 consumes them, so leaving this on merely grows a vector
+    /// until the caller drains it. At two thousand entities a forty-minute run
+    /// accumulates roughly 120 million rows.
+    pub record_kinematics: bool,
 }
 
 impl Default for WorldSpec {
@@ -74,6 +82,7 @@ impl Default for WorldSpec {
             tanks_per_team: 5,
             match_id: "match".to_string(),
             config_hash: 0,
+            record_kinematics: false,
         }
     }
 }
@@ -88,12 +97,10 @@ pub struct AgentState {
     pub is_cc: bool,
 }
 
-/// One tick's input. Actions from policies, commands from control centers.
-#[derive(Debug, Clone, Default)]
-pub struct Inputs {
-    pub actions: Vec<(AgentId, Action)>,
-    pub commands: Vec<(TeamId, Origin, Command)>,
-}
+// `Inputs` is defined in `schema`, beside `Action`, because a replay is nothing but
+// a seed and a stream of them and the recording sink must name the type without
+// depending on the simulation. Re-exported here so callers keep their import.
+pub use schema::Inputs;
 
 /// A damaging contact, resolved but not yet applied.
 #[derive(Debug, Clone, Copy)]
@@ -326,7 +333,9 @@ impl World {
         self.regenerate();
         self.reap();
         self.respawn_due();
-        self.record_kinematics();
+        if self.spec.record_kinematics {
+            self.record_kinematics();
+        }
 
         self.tick = self.tick.next();
     }
