@@ -9,6 +9,173 @@ here as a suggestion and the specification is left untouched.
 
 ---
 
+## Step 4 — `events` — 2026-09-04
+
+**Scope.** v0 build order step 4: the event bus, the `Sink` trait, a replay sink and
+a SQLite sink. `AGENTS.md` sets the bar as "a match must write a queryable database".
+
+### The Sizing Problem, And The Answer
+
+The first version of this plan wrote a full world snapshot per tick. That is 2000
+entities at roughly 120 bytes of JSON, 25 times a second, for ninety minutes — **30
+GB**. The plan was rejected on exactly that, and rightly.
+
+The arena holds two thousand moving objects and **twelve decision-makers**. Everything
+else is a consequence: shapes appear where the seeded generator put them, bullets fly
+where tanks aimed them. So the replay records decisions, not consequences.
+
+| | Recorded | Ninety minutes |
+|---|---|---|
+| Snapshot per tick | 2000 entities x 120 B | 30.2 GB |
+| Inputs per tick | 12 agents x ~13 B | **24.7 MB** |
+
+Measured, not estimated: `cargo run -p events --example record_match --release`
+writes 24.7 MB for 135,000 ticks. **1249 times smaller**, and exact rather than
+lossy — re-running the recipe reproduces the result bit for bit.
+
+This is what StarCraft and Factorio do, and it works here because determinism is
+already an invariant of the project rather than an accident: fixed timestep, seeded
+generator, integer tick counter, no wall-clock reads in simulation code. That
+invariant was written for reproducible experiments. Cheap replays are a second
+dividend from it.
+
+The subtlety worth recording: we log the *actions agents returned*, not the policies.
+A replay therefore reproduces even if a policy was a neural network or a human on a
+control center. Only `World::step` has to be deterministic, and it is.
+
+### What A Match Writes
+
+Two artefacts, split by whether losing them to a code change matters.
+
+| Artefact | Contents | Ninety minutes |
+|---|---|---|
+| `match.replay.gz` | seed, config hash, per-tick `Inputs` | 24.7 MB |
+| `match.db` | `match`, `events`, `scores` | 29.6 MB |
+
+Kinematics are written by neither. Trajectories were the largest thing a match
+produced by an order of magnitude, and they are pure derived data: a re-simulation
+from the log rebuilds them at any rate and filter. There is no `kinematics` table.
+
+The cost, stated plainly rather than buried: **a replay stops reproducing when the
+physics changes.** Collision response changed earlier in this same session; a log
+recorded before that commit no longer replays against today's code.
+`Event::MatchStart` carries `config_hash` so this is detectable rather than silent,
+but detection is not a fix. That is precisely why the `events` table is written
+permanently rather than regenerated too — kills, spawns, damage and scores are the
+analytical facts, and they must outlive a code change.
+
+### The 235 Megabyte Duplicate
+
+The first full recording produced a 376 MB database against a 24.7 MB replay. The
+breakdown found the cause immediately:
+
+| Kind | Rows | Payload bytes |
+|---|---|---|
+| `action_submitted` | 1,620,000 | 235,183,169 |
+| `damaged` | 85,186 | 7,604,498 |
+| `spawned` | 70,111 | 7,431,252 |
+| `despawned` | 68,181 | 2,341,322 |
+| `killed` | 5,975 | 232,551 |
+
+`ActionSubmitted` is twelve agents times 135,000 ticks — a second copy of the replay
+log, stored roughly ten times less compactly. The database now skips it, as it
+already skipped `TickBegin`, and fell from **376.5 MB to 29.6 MB**. Recording also
+got faster, 42.3s to 27.9s.
+
+Filtering is not divergence. The bus carries every variant to every sink; a sink
+declining to store what another already holds is the reason for having more than one.
+
+What is lost is `latency_us`, which is diagnostic and which nothing in v0 measures —
+scripted policies return immediately. When per-agent compute budgets land it wants a
+narrow table of its own rather than a full copy of every action riding beside it.
+
+### Built
+
+| File | Role | Lines |
+|---|---|---|
+| `lib.rs` | `TickRecord`, `Sink`, `Bus` | 106 |
+| `replay.rs` | `ReplaySink`, `ReplayReader`, run-length collapsing | 198 |
+| `sqlite.rs` | `SqliteSink`, schema, event filtering | 168 |
+
+The crate **depends on `schema` and nothing structural** — not on `sim-core`. A sink
+names only wire types, so most of its tests build records by hand and never start a
+simulation. Only the two end-to-end tests pull `sim-core` and `spawn` in as
+dev-dependencies.
+
+Two new workspace dependencies: `flate2` for gzip, and `rusqlite` with `bundled`.
+Gzip rather than zstd deliberately — `DecompressionStream("gzip")` exists in every
+browser and the viewer reads these files at step 6, so the thirty per cent zstd would
+save is not worth a decoder the browser has to ship. `bundled` so the engine is
+identical on every machine and in continuous integration, which matters when the
+database is a research artefact.
+
+Run-length collapsing in the replay: a tick whose inputs match the previous tick
+writes a repeat marker instead of the whole struct. Scripted policies hold an action
+for many ticks, so runs of repeats are most of a log.
+
+Tests: 7 in `events`, 137 across the workspace. `cargo fmt --check` and
+`cargo clippy --workspace --all-targets -D warnings` clean.
+
+The test that matters is `a_recorded_log_replays_the_match_exactly`: record a match,
+read the log back, re-simulate from seed and log alone, and compare the two event
+streams byte for byte. If that fails, the replay file is a record of nothing.
+
+### Findings
+
+**The spawner is configuration, not input.** A replay does not record what the
+spawner did. Its decisions are a function of the configuration and the world state,
+both of which the seed and the inputs already determine, so the replayer re-runs the
+same spawner from the same seed and gets the same shapes. This is what `config_hash`
+exists to pin, and it is why the replay is twelve agents wide rather than five foci
+wider.
+
+**Kinematics were accumulating for nobody.** `World::record_kinematics` appended a row
+per entity per tick and only the soak test ever drained it. The `spawn` examples never
+did, so a forty-minute run grew a vector by roughly 120 million rows in memory.
+`WorldSpec::record_kinematics` now gates it, defaulting to false. Found while removing
+the table, not by anything failing.
+
+### Suggestions
+
+**`docs/DESIGN.md` Storage section: no `kinematics` table.** The document specifies
+one. It is deliberately absent — the rows are derived data and the largest artefact a
+match produced. The `Kinematic` type, `drain_kinematics` and the recording code all
+remain, gated off, for a future live-metrics sink or a materialise command.
+
+**`docs/DESIGN.md` Events section: the `Sink` signature.** The document writes
+`accept(&mut self, tick: Tick, events: &[Event])`. That cannot carry the inputs a
+replay is made of, and a replay of events alone reproduces nothing. The implementation
+passes a `TickRecord` carrying events, inputs and scores, and each sink takes what it
+needs.
+
+**`docs/DESIGN.md` Viewer section: "watch it in a browser with no server running".**
+An input log cannot do this on its own; watching a recipe requires a kitchen. The
+property is deferred rather than abandoned — at step 6, when the viewer exists, an
+export command re-simulates a log into a frame file. `ReplayLine::Frame` is still in
+the schema for exactly that, unused for now.
+
+**`ReplayLine` gained two variants**, `Inputs` and `Repeat`. Additive, so
+`PROTOCOL_VERSION` did not move. Worth a decision on whether additive wire changes
+should bump it anyway once matches are being shared.
+
+**`Inputs` moved from `sim_core::world` to `schema`**, beside `Action`, and is
+re-exported from its old path so no caller broke. A replay is nothing but a seed and
+a stream of them, and the recording sink must name the type without depending on the
+simulation.
+
+### Carried Forward
+
+- The collision threshold for contact chain reactions is still deferred, and the soak
+  is still 1.7 times slower than before mass-weighting.
+- Alpha eviction has still not been re-measured under mass-weighted separation.
+- `config/arena.toml` and `config/match.toml` still do not exist. `MatchInfo` is
+  supplied by the caller because its `point_target` belongs to `objective`, which is
+  not built.
+- `Event::MatchEnd` is never emitted by `World`. The example and the end-to-end tests
+  push one by hand, which is what the objective crate will do.
+
+---
+
 ## Session `session_015rMEehHFh6HK9LNAyZ8NDW` — 2026-09-04
 
 **Scope.** v0 build order step 3, the spawner. Steps 1 and 2 were complete on entry.

@@ -1,0 +1,23 @@
+[package]
+name = "events"
+description = "The event bus. Sinks for the replay log and the match database."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# `schema` and nothing structural. A sink names only wire types, so it can be
+# tested with hand-built records and reused by anything that produces them.
+schema = { path = "../schema" }
+serde_json = { workspace = true }
+flate2 = { workspace = true }
+rusqlite = { workspace = true }
+
+[dev-dependencies]
+# Only the end-to-end tests run a simulation.
+sim-core = { path = "../core" }
+spawn = { path = "../spawn" }
+rand = { workspace = true }
+tempfile = "3"
