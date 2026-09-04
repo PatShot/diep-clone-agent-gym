@@ -15,6 +15,8 @@ people can run experiments in.
 - Ask before scaffolding a new crate or adding a dependency.
 - Build in the order below. Do not skip ahead to the interesting parts.
 - One runnable milestone at a time. Each step must execute before the next begins.
+- The Agent is instructed not to edit the AGENTS.md and within `./docs/` but instead keep a log at `docs/DEV_LOG_AI.md`.
+- However, if the user asks - change simple substitutions etc for the user within these docs. Always confirm with user before making changes. 
 
 ## Stack
 
@@ -52,10 +54,10 @@ We aim for 10 iterations via v0.0 -> v0.9
 
 ## v0 Build Order
 
-Current position: step 1 complete. Step 2 not started.
+Current position: step 2 complete. Step 3 not started.
 
 1. `schema` — Event enum, entity types, wire messages, TypeScript generation working.
-2. `core` — entities, fixed-step movement, circle collision, arena bounds. Headless.
+2. `core` — entities, fixed-step movement, circle collision, arena bounds. Headless. Bullet lifetime, contact damage, regeneration, and death were included by decision.
 3. `spawn` — uniform focus first, then nest focus, then wing foci. Config-driven.
 4. `events` — bus, file sink, SQLite sink. A match must write a queryable database.
 5. `server` — lockstep driver, WebSocket, snapshot and delta encoding, command intake.
@@ -78,7 +80,7 @@ Breaking a rule here invalidates results.
 - Commands drain at the top of the tick, before physics. Never mid-step.
 - The browser client is a viewer, not a player. Its only upward channel is `Command`.
 - A human operating the CC and a CC policy emit the same `Command` type.
-- Discrete events and kinematics go to separate tables. Position updates at 30 Hz
+- Discrete events and kinematics go to separate tables. Position updates at 25 Hz
   across 200+ entities will drown the event table otherwise.
 
 ## Deferred
@@ -111,8 +113,7 @@ to talk to a client we are not using.
 `github.com/abcxff/diepcustom` is AGPL-3.0 [Affero General Public License]. Do not
 copy code from it. Read `src/Const/` for constants only.
 
-Outstanding task: the constants extraction pass. Not done. GitHub rate-limited the
-first attempt.
+**Outstanding task: the constants extraction pass.** A provisional set lives in crates/core/src/constants.rs, with values traceable to STATS.md marked STATS and the rest marked PROVISIONAL alongside the reasoning that produced them. The reference pass against diepcustom/src/Const/ remains undone.
 
 ## Open Questions
 
