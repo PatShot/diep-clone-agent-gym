@@ -1,0 +1,18 @@
+[package]
+name = "spawn"
+description = "Shape spawning. Weighted foci, population throttling, placement rules."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+schema = { path = "../schema" }
+sim-core = { path = "../core" }
+rand = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
+
+[features]
+default = []

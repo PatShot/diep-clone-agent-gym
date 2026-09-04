@@ -1,0 +1,160 @@
+# Shape spawning.
+#
+# Mirrors `SpawnConfig::default()` in `crates/spawn/src/config.rs`. A test asserts
+# the two agree exactly, so this file and the shipped defaults cannot drift apart
+# without the build failing.
+#
+# Foci are walked in the order they appear here, at prefill and on every tick, and
+# placement is first-come. The order is load-bearing: the alpha focus is confined to
+# the inner third of the nest, the smallest and most contested ground on the map, so
+# it asks first. Behind the scatter focus it finds the centre already full and places
+# almost nothing.
+
+# Minimum distance from either base rectangle, in arena units. One tank sense radius,
+# so a tank sitting on its base boundary can see no freshly spawned shape and camping
+# the exit feeds nobody.
+base_keepout = 120.0
+
+# Rejection sampling budget per shape. Over budget, the focus spawns nothing this tick
+# and keeps its credit. This is what stops a full or misconfigured region spinning.
+place_attempts = 32
+
+# --- Alpha pentagons -------------------------------------------------------------
+#
+# The nest's prize, and a focus of its own because a focus carries one population band:
+# four alphas against the nest's forty-five, at a twentieth of the rate.
+#
+# The rate is derived, not chosen. A wing yields 20.5 points per second, so two wings
+# farmed unopposed are 41. At 800 points an alpha, matching that is one alpha every
+# 19.5 seconds. 0.055 is a shade above, because the nest has to be held and the wings
+# do not.
+[[foci]]
+id = 4
+tier_weights = [["alpha_pentagon", 1.0]]
+num_slow = 2
+num_max = 4
+count_by = "resident"
+respawn_per_sec = 0.055
+prefill = 4
+enabled = true
+
+[foci.region]
+shape = "disc"
+radius = 150.0
+center = { x = 500.0, y = 500.0 }
+
+# Placed in the inner third, counted across the whole disc. `exclude` applies to
+# placement only, which is what lets those two differ: an alpha starts far from the rim
+# and has to be shoved a long way before it stops being a nest shape.
+[[foci.exclude]]
+shape = "annulus"
+inner = 52.5
+outer = 150.0
+center = { x = 500.0, y = 500.0 }
+
+# Static. An alpha that wandered out of the nest would be the most valuable thing on
+# the map sitting where nobody has to fight for it.
+[foci.drift]
+kind = "static"
+
+# --- The nest --------------------------------------------------------------------
+#
+# Weights are the rates. Pentagons at five times the baseline of 3.0, the two common
+# shapes at a fifth of it, split in the proportion they take everywhere else. Dividing
+# through by respawn_per_sec recovers exactly those multiples.
+#
+# The band is measured, not guessed: a radius 150 disc takes 39 pentagons before
+# rejection sampling starts failing more often than it succeeds.
+[[foci]]
+id = 1
+exclude = []
+tier_weights = [["pentagon", 5.0], ["square", 0.17], ["triangle", 0.03]]
+num_slow = 30
+num_max = 45
+count_by = "resident"
+respawn_per_sec = 15.599999
+prefill = 45
+enabled = true
+
+[foci.region]
+shape = "disc"
+radius = 150.0
+center = { x = 500.0, y = 500.0 }
+
+[foci.drift]
+kind = "static"
+
+# --- Uniform scatter ---------------------------------------------------------------
+#
+# Excludes nothing. Scatter shapes may land in the nest, which is what lets the centre
+# become the densest ground on the map rather than a clearing with pentagons in it.
+# Pentagons stay the nest's alone because no other focus draws that tier.
+#
+# Counts by origin: this focus maintains a population, not a place, and its region is
+# the whole arena so the two would mean nearly the same thing anyway.
+#
+# Five tanks farming steadily out-pace 3.0 a second, which is what keeps the resource
+# finite in the short run and makes travelling somewhere else worth doing.
+[[foci]]
+id = 0
+exclude = []
+tier_weights = [["square", 0.85], ["triangle", 0.15]]
+num_slow = 1200
+num_max = 2000
+count_by = "origin"
+respawn_per_sec = 3.0
+prefill = 600
+enabled = true
+
+[foci.region]
+shape = "whole_arena"
+
+[foci.drift]
+kind = "wander"
+speed = 4.0
+
+# --- Wings -------------------------------------------------------------------------
+#
+# Off by default, as `docs/DESIGN.md` specifies. They exist so a researcher can add a
+# second and third contested area and watch how team allocation changes. Sited halfway
+# from the centre toward the two corners the bases do not occupy, which keeps them
+# equidistant from both teams.
+[[foci]]
+id = 2
+exclude = []
+tier_weights = [["triangle", 0.7], ["square", 0.3]]
+num_slow = 18
+num_max = 30
+count_by = "resident"
+respawn_per_sec = 1.0
+prefill = 20
+enabled = false
+
+[foci.region]
+shape = "disc"
+radius = 100.0
+center = { x = 750.0, y = 250.0 }
+
+[foci.drift]
+kind = "wander"
+speed = 4.0
+
+[[foci]]
+id = 3
+exclude = []
+tier_weights = [["triangle", 0.7], ["square", 0.3]]
+num_slow = 18
+num_max = 30
+count_by = "resident"
+respawn_per_sec = 1.0
+prefill = 20
+enabled = false
+
+[foci.region]
+shape = "disc"
+radius = 100.0
+center = { x = 250.0, y = 750.0 }
+
+[foci.drift]
+kind = "wander"
+speed = 4.0
