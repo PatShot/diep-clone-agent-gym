@@ -71,11 +71,24 @@ pub const CC_COMMS_RADIUS: f32 = 350.0;
 /// every direction, which is near-blind relative to the arena, as intended.
 pub const TANK_RADIUS: f32 = 10.0;
 
-/// PROVISIONAL. Common shape radius.
-pub const SHAPE_RADIUS_COMMON: f32 = 8.0;
+/// PROVISIONAL. Square radius. The smallest and most common shape.
+pub const SHAPE_RADIUS_SQUARE: f32 = 7.0;
 
-/// PROVISIONAL. High-tier shape radius. Visibly the bigger prize.
-pub const SHAPE_RADIUS_HIGH: f32 = 16.0;
+/// PROVISIONAL. Triangle radius.
+pub const SHAPE_RADIUS_TRIANGLE: f32 = 10.0;
+
+/// PROVISIONAL. Pentagon radius. Visibly the bigger prize.
+pub const SHAPE_RADIUS_PENTAGON: f32 = 16.0;
+
+/// PROVISIONAL. Alpha pentagon radius, and the reason [`MAX_ENTITY_RADIUS`] is what
+/// it is.
+///
+/// Deliberately only two units above a pentagon. diep.io's alpha pentagon is a
+/// landmark you can see across the map; this one is not. It earns its place through
+/// points per unit of area, not through occupying the nest. A shape large enough to
+/// fill the disc would reduce how many prizes fit there, which is the opposite of
+/// making the centre rich.
+pub const SHAPE_RADIUS_ALPHA: f32 = 18.0;
 
 /// PROVISIONAL. Bullet radius.
 pub const BULLET_RADIUS: f32 = 4.0;
@@ -87,7 +100,7 @@ pub const CC_RADIUS: f32 = 14.0;
 /// Largest radius any entity may take. The collision grid sizes its cells from
 /// this, so a radius above it would let two overlapping circles land in
 /// non-adjacent cells and miss each other.
-pub const MAX_ENTITY_RADIUS: f32 = SHAPE_RADIUS_HIGH;
+pub const MAX_ENTITY_RADIUS: f32 = SHAPE_RADIUS_ALPHA;
 
 // ---------------------------------------------------------------------------
 // Movement
@@ -208,28 +221,137 @@ pub const BODY_DAMAGE_VS_PROJECTILE: f32 = 5.0;
 // Shapes
 // ---------------------------------------------------------------------------
 
-/// PROVISIONAL. Common shape health. Two bullets and change.
-pub const SHAPE_HP_COMMON: f32 = 20.0;
+// The three tiers are ordered Square < Triangle < Pentagon, in health, in contact
+// damage, and in points. The ratios are what carry the design; the absolute numbers
+// are rescaled to this arena and this bullet, not copied from diep.io.
+//
+// PROVENANCE. `docs/STATS.md` carries no shape table, so the diep.io values these
+// are shaped after (10, 25 and 130 points) come from recall, not from a document in
+// this repository. Every number below is PROVISIONAL for that reason. The reference
+// pass against diepcustom/src/Const/ would settle them.
 
-/// PROVISIONAL. High-tier shape health. Twenty-two bullets, which is deliberately
-/// more than one tank can land before the shape's own contact damage becomes a
-/// problem. The nest is meant to need company.
-pub const SHAPE_HP_HIGH: f32 = 150.0;
+/// PROVISIONAL. Square health. Three bullets at [`BULLET_DAMAGE`].
+pub const SHAPE_HP_SQUARE: f32 = 20.0;
 
-/// PROVISIONAL. Body damage a common shape deals on contact.
-pub const SHAPE_BODY_DAMAGE_COMMON: f32 = 8.0;
+/// PROVISIONAL. Triangle health. Seven bullets. Farmable alone, but slow enough
+/// that a tank doing it is committed and not watching the map.
+pub const SHAPE_HP_TRIANGLE: f32 = 45.0;
 
-/// PROVISIONAL. Body damage a high-tier shape deals on contact.
-pub const SHAPE_BODY_DAMAGE_HIGH: f32 = 12.0;
+/// PROVISIONAL. Pentagon health. Twenty-two bullets, which is deliberately more
+/// than one tank can land before the shape's own contact damage becomes a problem.
+/// The nest is meant to need company.
+pub const SHAPE_HP_PENTAGON: f32 = 150.0;
 
-/// PROVISIONAL. Points for destroying a common shape. Read by the objective crate,
-/// not by this one.
-pub const SHAPE_VALUE_COMMON: u32 = 10;
+/// PROVISIONAL. Alpha pentagon health. Fifty-eight bullets.
+///
+/// A team of five firing continuously deals about 58 damage per second, so an alpha
+/// takes them seven seconds and takes one tank half a minute — long enough that its
+/// contact damage decides the trade. Paired with [`SHAPE_VALUE_ALPHA`] this works
+/// out to two points per point of health, against a pentagon's 0.87 and a
+/// triangle's 0.56. Points per unit of damage dealt is the number that decides
+/// where a team farms, so it is the number the alpha is designed around.
+pub const SHAPE_HP_ALPHA: f32 = 400.0;
 
-/// PROVISIONAL. Points for destroying a high-tier shape. Thirteen times a common
-/// shape for roughly eight times the health, which is what makes contesting the
-/// nest worth more than farming the edges in safety.
-pub const SHAPE_VALUE_HIGH: u32 = 130;
+/// PROVISIONAL. Body damage a square deals on contact.
+pub const SHAPE_BODY_DAMAGE_SQUARE: f32 = 8.0;
+
+/// PROVISIONAL. Body damage a triangle deals on contact.
+pub const SHAPE_BODY_DAMAGE_TRIANGLE: f32 = 12.0;
+
+/// PROVISIONAL. Body damage a pentagon deals on contact. High enough that a lone
+/// tank grinding one down loses the trade.
+pub const SHAPE_BODY_DAMAGE_PENTAGON: f32 = 20.0;
+
+/// PROVISIONAL. Body damage an alpha pentagon deals on contact.
+pub const SHAPE_BODY_DAMAGE_ALPHA: f32 = 30.0;
+
+/// PROVISIONAL. Points for destroying a square. Read by the objective crate, not
+/// by this one.
+pub const SHAPE_VALUE_SQUARE: u32 = 10;
+
+/// PROVISIONAL. Points for destroying a triangle. Two and a half squares for a bit
+/// over twice the health, so it is a marginal improvement, not a reason to travel.
+pub const SHAPE_VALUE_TRIANGLE: u32 = 25;
+
+/// PROVISIONAL. Points for destroying a pentagon. Thirteen squares for seven and a
+/// half times the health, which is what makes contesting the nest worth more than
+/// farming the edges in safety.
+pub const SHAPE_VALUE_PENTAGON: u32 = 130;
+
+/// PROVISIONAL. Points for destroying an alpha pentagon.
+///
+/// Six pentagons of value in 1.27 pentagons of area. That ratio is the whole design:
+/// the alpha raises what a defended nest yields per unit of ground without making
+/// the nest physically fuller. See [`NEST_ALPHA_RATE`] for how the figure was set.
+pub const SHAPE_VALUE_ALPHA: u32 = 800;
+
+// ---------------------------------------------------------------------------
+// Shape spawn rates
+// ---------------------------------------------------------------------------
+
+/// PROVISIONAL. Baseline spawn rate for a focus at full throttle, shapes per
+/// second. Five tanks farming steadily out-pace it, which is what keeps the
+/// resource finite in the short run and makes travelling somewhere else worth
+/// doing.
+pub const SHAPE_SPAWN_RATE: f32 = 3.0;
+
+/// Pentagon spawn rate at the nest, as a multiple of [`SHAPE_SPAWN_RATE`].
+///
+/// The nest is meant to be the richest source of points on the map by a wide
+/// margin, so that the arena centre is worth crossing open ground for and worth
+/// navigating carefully once you are there. Five times the baseline is what makes
+/// that true in points rather than in prose.
+pub const NEST_PENTAGON_RATE_MULT: f32 = 5.0;
+
+/// Square and triangle spawn rate at the nest, as a multiple of
+/// [`SHAPE_SPAWN_RATE`]. Reduced by 0.8 from the baseline, so the nest still
+/// carries the common shapes but they are not what anyone goes there for.
+pub const NEST_MINOR_RATE_MULT: f32 = 1.0 - 0.8;
+
+/// Spawn rate at one wing, shapes per second. A third of the baseline.
+pub const WING_SPAWN_RATE: f32 = SHAPE_SPAWN_RATE / 3.0;
+
+/// Alpha pentagon spawn rate at the nest, shapes per second.
+///
+/// Set so that holding the nest answers the alternative: a team farming both wings
+/// unopposed. A wing spawns one shape a second at 70% triangles and 30% squares,
+/// which is 20.5 points per second, so two wings are 41. At
+/// [`SHAPE_VALUE_ALPHA`] points each, 41 points per second is one alpha every
+/// 19.5 seconds, or 0.051 per second. The shipped figure is a little above that,
+/// because the nest is ground that has to be held and the wings are not.
+///
+/// Alphas alone therefore match the wings. The pentagons a defending team farms
+/// with its remaining damage are the margin that makes the centre worth taking:
+/// about 75 points per second against the wings' 41.
+pub const NEST_ALPHA_RATE: f32 = 0.055;
+
+// ---------------------------------------------------------------------------
+// Shape population
+// ---------------------------------------------------------------------------
+//
+// Both limits are PER FOCUS, not global. Each farming area saturates on its own,
+// so a team that prioritises one area pays a cost the other areas do not. A global
+// cap would let a crowded nest suppress spawning at the edges, which is the
+// opposite of the pressure these are for.
+
+/// Alive shapes from one focus at which its respawn rate begins to fall. Below
+/// this the focus spawns at its configured rate.
+pub const SHAPE_NUM_SLOW: usize = 1200;
+
+/// Alive shapes from one focus at which it stops spawning entirely. Between
+/// [`SHAPE_NUM_SLOW`] and this, the rate ramps linearly to zero, so a filling area
+/// yields less and less and exploring elsewhere starts to pay.
+///
+/// A focus is also bounded by its own `capacity`, which is what its region can
+/// physically hold. The effective ceiling is the smaller of the two: the nest disc
+/// at radius 150 has nowhere near the area for 2000 pentagons.
+pub const SHAPE_NUM_MAX: usize = 2000;
+
+/// PROVISIONAL. How far from a base a shape must spawn, in units from the base
+/// rectangle. Set to one [`TANK_SENSE_RADIUS`] so that a tank sitting on the base
+/// boundary can see no freshly spawned shape. Camping a base exit then feeds
+/// nobody, which is the point.
+pub const SHAPE_SPAWN_BASE_KEEPOUT: f32 = TANK_SENSE_RADIUS;
 
 // ---------------------------------------------------------------------------
 // Lifecycle
@@ -241,6 +363,80 @@ pub const SHAPE_VALUE_HIGH: u32 = 130;
 /// making death a resource decision. A fixed delay is the placeholder, not the
 /// answer.
 pub const RESPAWN_DELAY_TICKS: u32 = 75;
+
+// ---------------------------------------------------------------------------
+// Mass
+// ---------------------------------------------------------------------------
+//
+// PROVENANCE. diep.io resolves contacts through `receiveKnockback` with push and
+// absorption factors carried in its physics field group, but those values are not
+// published and the wiki does not carry them. Nothing was copied. The hierarchy
+// below is derived from our own score table instead, normalised so a square is one:
+// a shape's mass is its point value divided by `SHAPE_VALUE_SQUARE`.
+//
+// Deriving mass from score rather than from area is deliberate. Area would make an
+// alpha pentagon only 1.27 times a pentagon, which is nowhere near enough to keep
+// it still. Score is what the design already uses to say how much a shape matters,
+// and "the valuable ones are hard to move" is the property the nest needs.
+
+/// Mass of a square. The unit every other mass is expressed against.
+pub const MASS_SQUARE: f32 = 1.0;
+
+/// Mass of a triangle. `SHAPE_VALUE_TRIANGLE / SHAPE_VALUE_SQUARE`.
+pub const MASS_TRIANGLE: f32 = 2.5;
+
+/// Mass of a pentagon. Thirteen squares, so a square shoving one moves it by a
+/// fourteenth of the overlap and takes the rest itself.
+pub const MASS_PENTAGON: f32 = 13.0;
+
+/// Mass of an alpha pentagon. Eighty squares. A passing square moves it by one
+/// part in eighty-one, which is what stops the nest's prize from being walked out
+/// of the nest by traffic.
+pub const MASS_ALPHA: f32 = 80.0;
+
+/// Mass of a tank. Between a pentagon and an alpha, so a tank clears squares and
+/// triangles out of its way, shoulders past a pentagon with effort, and cannot
+/// move an alpha at all.
+pub const MASS_TANK: f32 = 20.0;
+
+/// Floor applied to any mass before it divides. Guards the mass split against a
+/// zero that would otherwise produce a division by zero.
+pub const MIN_MASS: f32 = 0.001;
+
+// ---------------------------------------------------------------------------
+// Contact response and drag
+// ---------------------------------------------------------------------------
+
+/// PROVISIONAL. Overlap converted to velocity on contact, per unit of penetration
+/// per second.
+///
+/// A contact is a collision, not just an overlap to be edited away: both bodies
+/// come out of it moving, in inverse proportion to their mass. This is the term
+/// that gives drag something to act on. Without it, separation writes positions
+/// directly and a shape is walked around the arena at zero velocity, where no drag
+/// force can reach it.
+pub const CONTACT_IMPULSE: f32 = 3.0;
+
+/// PROVISIONAL. Velocity a shape retains per tick. Same form as [`DRAG`], which
+/// does this for tanks.
+///
+/// At 0.94 a shape keeps about 21% of its speed after one second, so a shove
+/// travels a short way and stops rather than becoming a permanent course change.
+pub const SHAPE_DRAG: f32 = 0.94;
+
+/// PROVISIONAL. Velocity an alpha pentagon retains per tick.
+///
+/// Much heavier than [`SHAPE_DRAG`]. An alpha is already hard to move by mass; this
+/// makes the little movement it does acquire die almost at once, so the nest's
+/// prize stays where the nest put it.
+pub const ALPHA_PEN_DRAG: f32 = 0.70;
+
+/// Speed below which a shape is treated as at rest, units per second.
+///
+/// Its velocity is zeroed and its slot leaves the movement bitmap, so the movement
+/// step stops paying for it. Small enough that a shape crosses well under a
+/// hundredth of its own radius per tick before being parked.
+pub const MOVING_EPSILON: f32 = 0.05;
 
 /// Separation applied per tick to resolve an overlap, as a fraction of the
 /// penetration depth. Below one so that contacts settle over a few ticks instead of

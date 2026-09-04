@@ -16,6 +16,7 @@
 //! ```
 
 pub mod arena;
+pub mod bitmap;
 pub mod constants;
 pub mod entity;
 pub mod grid;
@@ -23,7 +24,8 @@ pub mod store;
 pub mod world;
 
 pub use arena::{ArenaSpec, Rect};
-pub use entity::{tank_max_hp, Entity};
+pub use bitmap::BitMap;
+pub use entity::{shape_drag, shape_mass, shape_radius, tank_max_hp, Entity};
 pub use grid::Grid;
 pub use store::{EntityKey, Store};
 pub use world::{AgentState, Inputs, World, WorldSpec};

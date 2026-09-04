@@ -11,10 +11,14 @@ use schema::{
 };
 
 use crate::constants::{
-    BODY_DAMAGE_VS_PROJECTILE, BODY_DAMAGE_VS_SHAPE, BODY_DAMAGE_VS_TANK, BULLET_DAMAGE, BULLET_HP,
-    BULLET_LIFETIME_TICKS, BULLET_RADIUS, CC_RADIUS, SHAPE_BODY_DAMAGE_COMMON,
-    SHAPE_BODY_DAMAGE_HIGH, SHAPE_HP_COMMON, SHAPE_HP_HIGH, SHAPE_RADIUS_COMMON, SHAPE_RADIUS_HIGH,
-    SHAPE_VALUE_COMMON, SHAPE_VALUE_HIGH, TANK_BASE_HP, TANK_HP_PER_LEVEL, TANK_RADIUS,
+    ALPHA_PEN_DRAG, BODY_DAMAGE_VS_PROJECTILE, BODY_DAMAGE_VS_SHAPE, BODY_DAMAGE_VS_TANK,
+    BULLET_DAMAGE, BULLET_HP, BULLET_LIFETIME_TICKS, BULLET_RADIUS, CC_RADIUS, MASS_ALPHA,
+    MASS_PENTAGON, MASS_SQUARE, MASS_TANK, MASS_TRIANGLE, SHAPE_BODY_DAMAGE_ALPHA,
+    SHAPE_BODY_DAMAGE_PENTAGON, SHAPE_BODY_DAMAGE_SQUARE, SHAPE_BODY_DAMAGE_TRIANGLE, SHAPE_DRAG,
+    SHAPE_HP_ALPHA, SHAPE_HP_PENTAGON, SHAPE_HP_SQUARE, SHAPE_HP_TRIANGLE, SHAPE_RADIUS_ALPHA,
+    SHAPE_RADIUS_PENTAGON, SHAPE_RADIUS_SQUARE, SHAPE_RADIUS_TRIANGLE, SHAPE_VALUE_ALPHA,
+    SHAPE_VALUE_PENTAGON, SHAPE_VALUE_SQUARE, SHAPE_VALUE_TRIANGLE, TANK_BASE_HP,
+    TANK_HP_PER_LEVEL, TANK_RADIUS,
 };
 
 /// A live entity. Every kind shares this shape; `kind` decides which fields carry
@@ -27,6 +31,11 @@ pub struct Entity {
     /// Radians. Zero points east, positive turns toward south.
     pub heading: f32,
     pub radius: f32,
+
+    /// How hard this entity is to push. A contact splits its correction between
+    /// the two bodies in inverse proportion to this, so the heavier one barely
+    /// moves. See `constants::MASS_SQUARE` for how the hierarchy was derived.
+    pub mass: f32,
 
     pub team: Option<TeamId>,
     /// The agent driving this entity. Tanks and control centers only.
@@ -72,6 +81,7 @@ impl Entity {
             vel: Vec2::ZERO,
             heading: 0.0,
             radius,
+            mass: MASS_SQUARE,
             team: None,
             agent: None,
             owner: None,
@@ -99,22 +109,24 @@ impl Entity {
             agent: Some(agent),
             hp,
             max_hp: hp,
+            mass: MASS_TANK,
             contact_damage: BODY_DAMAGE_VS_TANK,
             ..Self::blank(Kind::Tank, pos, TANK_RADIUS)
         }
     }
 
     pub fn shape(tier: ShapeTier, pos: Vec2, vel: Vec2, focus: Option<FocusId>) -> Self {
-        let (radius, hp, damage) = match tier {
-            ShapeTier::Common => (
-                SHAPE_RADIUS_COMMON,
-                SHAPE_HP_COMMON,
-                SHAPE_BODY_DAMAGE_COMMON,
-            ),
-            ShapeTier::High => (SHAPE_RADIUS_HIGH, SHAPE_HP_HIGH, SHAPE_BODY_DAMAGE_HIGH),
+        let radius = shape_radius(tier);
+        let mass = shape_mass(tier);
+        let (hp, damage) = match tier {
+            ShapeTier::Square => (SHAPE_HP_SQUARE, SHAPE_BODY_DAMAGE_SQUARE),
+            ShapeTier::Triangle => (SHAPE_HP_TRIANGLE, SHAPE_BODY_DAMAGE_TRIANGLE),
+            ShapeTier::Pentagon => (SHAPE_HP_PENTAGON, SHAPE_BODY_DAMAGE_PENTAGON),
+            ShapeTier::AlphaPentagon => (SHAPE_HP_ALPHA, SHAPE_BODY_DAMAGE_ALPHA),
         };
         Self {
             vel,
+            mass,
             hp,
             max_hp: hp,
             tier: Some(tier),
@@ -194,8 +206,10 @@ impl Entity {
     /// Points this entity is worth when destroyed. Read by the objective crate.
     pub fn value(&self) -> u32 {
         match (self.kind, self.tier) {
-            (Kind::Shape, Some(ShapeTier::Common)) => SHAPE_VALUE_COMMON,
-            (Kind::Shape, Some(ShapeTier::High)) => SHAPE_VALUE_HIGH,
+            (Kind::Shape, Some(ShapeTier::Square)) => SHAPE_VALUE_SQUARE,
+            (Kind::Shape, Some(ShapeTier::Triangle)) => SHAPE_VALUE_TRIANGLE,
+            (Kind::Shape, Some(ShapeTier::Pentagon)) => SHAPE_VALUE_PENTAGON,
+            (Kind::Shape, Some(ShapeTier::AlphaPentagon)) => SHAPE_VALUE_ALPHA,
             // A tank's kill value is its accumulated score, so a fed tank is a
             // target worth coordinating on.
             (Kind::Tank, _) => self.score,
@@ -248,6 +262,42 @@ impl Entity {
 }
 
 /// Tank health at a given level, before stat points. `docs/STATS.md`.
+/// Mass of a shape of this tier.
+///
+/// Derived from the score table: a shape's mass is its point value divided by
+/// [`SHAPE_VALUE_SQUARE`]. Written as constants rather than computed so that the
+/// two can be tuned apart if a score change should not move the physics.
+pub fn shape_mass(tier: ShapeTier) -> f32 {
+    match tier {
+        ShapeTier::Square => MASS_SQUARE,
+        ShapeTier::Triangle => MASS_TRIANGLE,
+        ShapeTier::Pentagon => MASS_PENTAGON,
+        ShapeTier::AlphaPentagon => MASS_ALPHA,
+    }
+}
+
+/// Velocity a shape of this tier retains per tick.
+pub fn shape_drag(tier: ShapeTier) -> f32 {
+    match tier {
+        ShapeTier::AlphaPentagon => ALPHA_PEN_DRAG,
+        _ => SHAPE_DRAG,
+    }
+}
+
+/// Radius of a shape of this tier.
+///
+/// Exposed because the spawner needs the radius before the entity exists, in order
+/// to inset a candidate point from the arena wall and to test it for overlap. One
+/// table, read from both places.
+pub fn shape_radius(tier: ShapeTier) -> f32 {
+    match tier {
+        ShapeTier::Square => SHAPE_RADIUS_SQUARE,
+        ShapeTier::Triangle => SHAPE_RADIUS_TRIANGLE,
+        ShapeTier::Pentagon => SHAPE_RADIUS_PENTAGON,
+        ShapeTier::AlphaPentagon => SHAPE_RADIUS_ALPHA,
+    }
+}
+
 pub fn tank_max_hp(level: u8) -> f32 {
     TANK_BASE_HP + TANK_HP_PER_LEVEL * (level.saturating_sub(1) as f32)
 }

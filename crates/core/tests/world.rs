@@ -436,13 +436,13 @@ fn overlapping_tanks_push_apart() {
 #[test]
 fn shapes_do_not_damage_each_other() {
     let mut w = empty_world();
-    let a = w.spawn_shape(ShapeTier::Common, Vec2::new(500.0, 500.0), Vec2::ZERO, None);
-    let b = w.spawn_shape(ShapeTier::Common, Vec2::new(504.0, 500.0), Vec2::ZERO, None);
+    let a = w.spawn_shape(ShapeTier::Square, Vec2::new(500.0, 500.0), Vec2::ZERO, None);
+    let b = w.spawn_shape(ShapeTier::Square, Vec2::new(504.0, 500.0), Vec2::ZERO, None);
     for _ in 0..30 {
         w.step(&Inputs::default());
     }
-    assert_eq!(w.entity(a).expect("alive").hp, SHAPE_HP_COMMON);
-    assert_eq!(w.entity(b).expect("alive").hp, SHAPE_HP_COMMON);
+    assert_eq!(w.entity(a).expect("alive").hp, SHAPE_HP_SQUARE);
+    assert_eq!(w.entity(b).expect("alive").hp, SHAPE_HP_SQUARE);
 }
 
 #[test]
@@ -454,10 +454,10 @@ fn a_tank_and_a_shape_damage_each_other_on_contact() {
         Vec2::new(500.0, 500.0),
         0.0,
     ));
-    let shape = w.spawn_shape(ShapeTier::Common, Vec2::new(512.0, 500.0), Vec2::ZERO, None);
+    let shape = w.spawn_shape(ShapeTier::Square, Vec2::new(512.0, 500.0), Vec2::ZERO, None);
     w.step(&Inputs::default());
     assert!(w.entity(tank).expect("alive").hp < tank_hp());
-    assert!(w.entity(shape).expect("alive").hp < SHAPE_HP_COMMON);
+    assert!(w.entity(shape).expect("alive").hp < SHAPE_HP_SQUARE);
 }
 
 // ---------------------------------------------------------------------------
@@ -725,8 +725,8 @@ fn an_agent_sees_only_inside_its_sense_radius() {
 
     let near = Vec2::new(at.x + TANK_SENSE_RADIUS * 0.5, at.y);
     let far = Vec2::new(at.x + TANK_SENSE_RADIUS * 3.0, at.y);
-    let seen = w.spawn_shape(ShapeTier::Common, near, Vec2::ZERO, None);
-    let unseen = w.spawn_shape(ShapeTier::Common, far, Vec2::ZERO, None);
+    let seen = w.spawn_shape(ShapeTier::Square, near, Vec2::ZERO, None);
+    let unseen = w.spawn_shape(ShapeTier::Square, far, Vec2::ZERO, None);
     w.step(&Inputs::default());
 
     let obs = w.observe(agent).expect("the agent exists");
@@ -944,23 +944,55 @@ fn the_grid_finds_every_pair_brute_force_finds() {
 }
 
 #[test]
-fn shapes_reflect_off_walls_rather_than_piling_against_them() {
-    // A shape that stopped at a wall would stay there for the whole match, and
-    // the arena centre would empty out over ninety minutes.
+fn a_shape_reaching_a_wall_reflects_then_comes_to_rest() {
+    // Two properties in one test, because they constrain each other.
+    //
+    // A shape still has to bounce. One that stopped dead against a wall would stay
+    // there for the whole match, and the arena edges would silt up while the centre
+    // emptied.
+    //
+    // And a shape has to stop. Drag takes a shape's speed geometrically, so a shove
+    // carries it `v0 * DT / (1 - SHAPE_DRAG)` and no further. At the shipped
+    // constants that is under three units, which is why this test launches the
+    // shape hard rather than letting it drift over: at drift speed it would halt
+    // long before reaching the wall and never test the reflection at all.
     let mut w = empty_world();
+    let launch = 200.0;
     let s = w.spawn_shape(
-        ShapeTier::Common,
-        Vec2::new(ARENA_SIDE - 20.0, 500.0),
-        Vec2::new(SHAPE_DRIFT_SPEED, 0.0),
+        ShapeTier::Square,
+        Vec2::new(ARENA_SIDE - 40.0, 500.0),
+        Vec2::new(launch, 0.0),
         None,
     );
+
+    // Far enough for the shape to cross the gap and turn around.
+    let mut reflected = false;
+    for _ in 0..40 {
+        w.step(&Inputs::default());
+        if w.entity(s).expect("alive").vel.x < 0.0 {
+            reflected = true;
+            break;
+        }
+    }
+    assert!(
+        reflected,
+        "shape never reflected: vel {:?}",
+        w.entity(s).expect("alive").vel
+    );
+
+    // Then drag takes the rest of it.
     for _ in 0..400 {
         w.step(&Inputs::default());
     }
     let e = w.entity(s).expect("alive");
-    assert!(e.vel.x < 0.0, "shape did not reflect: vel {:?}", e.vel);
+    assert_eq!(
+        e.vel,
+        Vec2::ZERO,
+        "shape should have come to rest, still moving at {:?}",
+        e.vel
+    );
     assert!(
-        e.pos.x < ARENA_SIDE - SHAPE_RADIUS_COMMON - 1.0,
+        e.pos.x < ARENA_SIDE - SHAPE_RADIUS_SQUARE - 1.0,
         "shape stayed pinned to the wall at {:?}",
         e.pos
     );
@@ -998,7 +1030,7 @@ fn base_ejection_never_pushes_anything_out_of_the_arena() {
 
     for team in [TeamId::A, TeamId::B] {
         let base = *w.arena.base(team);
-        for radius in [BULLET_RADIUS, TANK_RADIUS, SHAPE_RADIUS_HIGH] {
+        for radius in [BULLET_RADIUS, TANK_RADIUS, SHAPE_RADIUS_PENTAGON] {
             // Sweep the whole base, corners included.
             for i in 0..=20 {
                 for j in 0..=20 {
@@ -1033,7 +1065,7 @@ fn base_ejection_never_pushes_anything_out_of_the_arena() {
 fn a_shape_drifting_into_a_corner_base_stays_in_the_world() {
     let mut w = empty_world();
     let s = w.spawn_shape(
-        ShapeTier::High,
+        ShapeTier::Pentagon,
         Vec2::new(60.0, 60.0),
         Vec2::new(-SHAPE_DRIFT_SPEED, -SHAPE_DRIFT_SPEED),
         None,

@@ -42,12 +42,14 @@ use schema::{
 };
 
 use crate::arena::ArenaSpec;
+use crate::bitmap::BitMap;
 use crate::constants::{
-    BODY_DAMAGE_VS_PROJECTILE, BULLET_SPEED, CC_COMMS_RADIUS, DT, RECOIL_IMPULSE,
-    REGEN_DELAY_TICKS, REGEN_FRACTION_PER_SEC, RELOAD_TICKS, RESPAWN_DELAY_TICKS,
-    SEPARATION_STRENGTH, TANK_ACCEL, TANK_COMMS_RADIUS, TANK_RADIUS, TANK_SENSE_RADIUS,
+    BODY_DAMAGE_VS_PROJECTILE, BULLET_SPEED, CC_COMMS_RADIUS, CONTACT_IMPULSE, DRAG, DT, MIN_MASS,
+    MOVING_EPSILON, RECOIL_IMPULSE, REGEN_DELAY_TICKS, REGEN_FRACTION_PER_SEC, RELOAD_TICKS,
+    RESPAWN_DELAY_TICKS, SEPARATION_STRENGTH, TANK_ACCEL, TANK_COMMS_RADIUS, TANK_RADIUS,
+    TANK_SENSE_RADIUS,
 };
-use crate::entity::Entity;
+use crate::entity::{shape_drag, Entity};
 use crate::grid::Grid;
 use crate::store::Store;
 
@@ -120,6 +122,12 @@ pub struct World {
     /// Reused between ticks so the sweep does not allocate.
     hits: Vec<Hit>,
     scratch: Vec<EntityId>,
+    /// Slots whose entity is in motion. The movement step reads only these.
+    moving: BitMap,
+    /// Slot index to the handle occupying it, so a set bit resolves to an entity.
+    slot_ids: Vec<Option<EntityId>>,
+    /// Scratch for slots leaving the bitmap. Reused so the step does not allocate.
+    parked: Vec<u32>,
 }
 
 impl World {
@@ -139,6 +147,9 @@ impl World {
             scores: [0, 0],
             hits: Vec::new(),
             scratch: Vec::new(),
+            moving: BitMap::new(),
+            slot_ids: Vec::new(),
+            parked: Vec::new(),
             spec: spec.clone(),
         };
 
@@ -180,6 +191,12 @@ impl World {
         self.store.get(id)
     }
 
+    /// How many slots the movement step will touch this tick. Instrumentation for
+    /// the bitmap: compare against [`Self::entity_count`].
+    pub fn moving_count(&self) -> usize {
+        self.moving.len()
+    }
+
     pub fn entity_count(&self) -> usize {
         self.store.len()
     }
@@ -213,6 +230,7 @@ impl World {
     pub fn spawn(&mut self, e: Entity) -> EntityId {
         let (kind, pos, team, focus) = (e.kind, e.pos, e.team, e.focus);
         let id = self.store.insert(e);
+        self.track(id);
         self.events.push(Event::Spawned {
             id,
             kind,
@@ -229,6 +247,12 @@ impl World {
     /// drift. Physics is this crate's business; ownership of an entity's meaning
     /// is not.
     pub fn entity_mut(&mut self, id: EntityId) -> Option<&mut Entity> {
+        // The caller may set a velocity, and nothing else would enter this slot
+        // into the movement bitmap. Marking it here is the conservative choice: if
+        // it turns out not to be moving, drag parks it again on the next tick.
+        if self.store.contains(id) {
+            self.moving.set(id.index);
+        }
         self.store.get_mut(id)
     }
 
@@ -391,17 +415,86 @@ impl World {
 
     /// Step 3. Velocity first, then position. Drag applies to tanks only: a bullet
     /// flies straight at muzzle speed for its whole life, and a shape drifts.
+    /// Step 3. Move what is moving, and nothing else.
+    ///
+    /// Driven by the movement bitmap rather than by a walk of the entity table. At
+    /// two thousand shapes, nearly all of them parked once drag has taken their
+    /// spawn velocity, the difference is most of the step. Set bits come back in
+    /// ascending slot order, which is the same order `Store::iter` uses, so the
+    /// determinism invariant is unaffected.
+    ///
+    /// A shape that falls below [`MOVING_EPSILON`] has its velocity zeroed and its
+    /// bit cleared. Anything that shoves it later puts the bit back.
     fn integrate(&mut self) {
-        for (_, e) in self.store.iter_mut() {
+        let mut parked = std::mem::take(&mut self.parked);
+        parked.clear();
+
+        for index in self.moving.iter() {
+            let Some(id) = self.slot_ids.get(index as usize).copied().flatten() else {
+                parked.push(index);
+                continue;
+            };
+            let Some(e) = self.store.get_mut(id) else {
+                // Slot recycled or emptied since the bit was set.
+                parked.push(index);
+                continue;
+            };
             if e.is_inert() {
+                parked.push(index);
                 continue;
             }
+
             if e.is_tank() {
-                e.vel.x *= crate::constants::DRAG;
-                e.vel.y *= crate::constants::DRAG;
+                e.vel.x *= DRAG;
+                e.vel.y *= DRAG;
+            } else if let Some(tier) = e.tier {
+                let drag = shape_drag(tier);
+                e.vel.x *= drag;
+                e.vel.y *= drag;
+                if e.vel.length_squared() < MOVING_EPSILON * MOVING_EPSILON {
+                    e.vel = Vec2::ZERO;
+                    parked.push(index);
+                }
             }
+
             e.pos.x += e.vel.x * DT;
             e.pos.y += e.vel.y * DT;
+        }
+
+        for index in parked.drain(..) {
+            self.moving.clear(index);
+        }
+        self.parked = parked;
+    }
+
+    /// Record a slot so the movement step can find the entity behind a set bit,
+    /// and enter it into the bitmap if it has any reason to move.
+    fn track(&mut self, id: EntityId) {
+        let index = id.index as usize;
+        if self.slot_ids.len() <= index {
+            self.slot_ids.resize(index + 1, None);
+        }
+        self.slot_ids[index] = Some(id);
+
+        let moves = match self.store.get(id) {
+            // A tank is never parked: it may thrust on any tick, and nothing else
+            // would put its bit back.
+            Some(e) => e.is_tank() || e.vel != Vec2::ZERO,
+            None => false,
+        };
+        if moves {
+            self.moving.set(id.index);
+        }
+    }
+
+    /// Stop tracking a slot. The bit must go with the entity, or the movement step
+    /// will keep looking up a handle that no longer resolves.
+    fn untrack(&mut self, id: EntityId) {
+        self.moving.clear(id.index);
+        if let Some(slot) = self.slot_ids.get_mut(id.index as usize) {
+            if *slot == Some(id) {
+                *slot = None;
+            }
         }
     }
 
@@ -564,8 +657,22 @@ impl World {
         }
     }
 
-    /// Push two overlapping circles apart, each by half the penetration, damped so
-    /// contacts settle over a few ticks instead of snapping.
+    /// Resolve an overlap as a collision between two bodies with mass.
+    ///
+    /// Two things happen, and both are split in inverse proportion to mass so the
+    /// heavier body barely moves:
+    ///
+    /// 1. A positional correction, which is what actually stops circles sinking
+    ///    into each other. Damped by [`SEPARATION_STRENGTH`] so a contact settles
+    ///    over a few ticks instead of snapping apart.
+    /// 2. A velocity impulse, which is what makes this a collision rather than an
+    ///    edit. It is also the only reason drag has anything to act on: with a
+    ///    position-only correction a shape is walked around the arena at zero
+    ///    velocity, where no drag force can reach it.
+    ///
+    /// Mass comes from the score table — see `constants::MASS_SQUARE`. An alpha
+    /// pentagon is eighty squares, so a passing square takes eighty parts in
+    /// eighty-one of the correction and the alpha takes one.
     fn separate(&mut self, a: EntityId, b: EntityId, d2: f32, sum: f32) {
         let d = d2.sqrt();
         let Some((ea, eb)) = self.store.get_pair_mut(a, b) else {
@@ -578,11 +685,30 @@ impl World {
             // rather than reaching for the generator.
             (1.0, 0.0)
         };
-        let push = (sum - d) * 0.5 * SEPARATION_STRENGTH;
-        ea.pos.x -= nx * push;
-        ea.pos.y -= ny * push;
-        eb.pos.x += nx * push;
-        eb.pos.y += ny * push;
+
+        // Each body takes the *other* body's share of the total mass, so the light
+        // one moves and the heavy one holds its ground.
+        let ma = ea.mass.max(MIN_MASS);
+        let mb = eb.mass.max(MIN_MASS);
+        let total = ma + mb;
+        let (share_a, share_b) = (mb / total, ma / total);
+
+        let overlap = sum - d;
+        let push = overlap * SEPARATION_STRENGTH;
+        ea.pos.x -= nx * push * share_a;
+        ea.pos.y -= ny * push * share_a;
+        eb.pos.x += nx * push * share_b;
+        eb.pos.y += ny * push * share_b;
+
+        let impulse = overlap * CONTACT_IMPULSE;
+        ea.vel.x -= nx * impulse * share_a;
+        ea.vel.y -= ny * impulse * share_a;
+        eb.vel.x += nx * impulse * share_b;
+        eb.vel.y += ny * impulse * share_b;
+
+        // Both are in motion now, whether or not they were before.
+        self.moving.set(a.index);
+        self.moving.set(b.index);
     }
 
     /// Step 6. Apply in collection order, skipping anything already dead. Order is
@@ -677,6 +803,7 @@ impl World {
         let Some(e) = self.store.remove(id) else {
             return;
         };
+        self.untrack(id);
         self.events.push(Event::Despawned { id, cause });
 
         if let Some(agent) = e.agent {

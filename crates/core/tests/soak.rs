@@ -27,9 +27,9 @@ fn a_full_length_match_stays_finite_and_bounded() {
     };
     for i in 0..200 {
         let tier = if i % 20 == 0 {
-            ShapeTier::High
+            ShapeTier::Pentagon
         } else {
-            ShapeTier::Common
+            ShapeTier::Square
         };
         let a = next() * std::f32::consts::TAU;
         w.spawn_shape(
