@@ -180,9 +180,97 @@ driver a wrapper rather than a rewrite. Worth not losing.
 
 ### Carried Forward
 
-- Step 3, `spawn`. Not started. `World::spawn_shape` and `World::entity_mut` are the
-  hooks it needs, and both exist.
 - Score accrual is deliberately absent. `World::add_score` and `Entity::value` are the
   hooks the `objective` crate writes through.
 - The sensor sweep is empty, as `schema::sense` intends for v0. `Grid` is in place for
   the digital differential analyzer [DDA] traversal at v0.5.
+
+---
+
+### Build Order Status
+
+Recorded after the viewer was scoped and then deliberately deferred. A vertical slice
+through steps 3, 5 and 6 would have put something on screen sooner. Building in order
+was chosen instead, so shapes, policies and transport are settled before anything
+renders.
+
+Numbered steps, as `AGENTS.md` defines them:
+
+| Step | Crate | Delivers | Status |
+|---|---|---|---|
+| 1 | `schema` | Event enum, entity types, wire messages, TypeScript generation | Complete |
+| 2 | `core`, packaged `sim-core` | Entities, fixed-step physics, circle collision, arena bounds, bullet lifetime, contact damage, regeneration, death | Complete |
+| 3 | `spawn` | `Spawner` trait, `Focus`, composite implementation. Uniform scatter, then nest, then wings. Config-driven | Next |
+| 4 | `events` | Bus, `Sink` trait, file sink, SQLite sink | Not started |
+| 5 | `server` | Lockstep driver, WebSocket, snapshot and delta encoding, command intake | Not started |
+| 6 | `client` | Canvas render of arena, tanks, shapes, scores. Then replay loading | Not started |
+
+Named in the layout, absent from the numbered order:
+
+| Crate | Delivers | Consequence of the gap |
+|---|---|---|
+| `agent` | `Policy` trait, scripted baselines, socket bridge | Nothing drives a tank. Step 6 renders ten stationary tanks |
+| `objective` | `Objective` trait, `PointTarget` | Nothing scores. `Event::Scored` never fires and a match has no end condition |
+| `config/` | `arena.toml`, `spawn.toml`, `match.toml` | Does not exist. Step 3 is specified as config-driven, so it lands there |
+
+### Suggested Insertion Points For `agent` And `objective`
+
+Not applied; `AGENTS.md` is human domain. Both crates are in the layout but neither has
+a number, and the ordering is forced by what depends on what.
+
+`agent` belongs directly after `spawn`. A scripted baseline is specified as "drive to
+nearest shape, shoot it", which needs shapes to exist first, and the lockstep driver in
+step 5 blocks until every agent replies, so the `Policy` trait must precede it.
+
+`objective` belongs before `server`. Scoring reads kills and shape destruction, both of
+which `core` already emits, and a match cannot end without a win condition. `core`
+exposes `World::add_score` and `Entity::value` as the hooks it writes through.
+
+That gives eight steps rather than six:
+
+| Step | Crate |
+|---|---|
+| 1 | `schema` |
+| 2 | `core` |
+| 3 | `spawn` |
+| 4 | `agent` |
+| 5 | `events` |
+| 6 | `objective` |
+| 7 | `server` |
+| 8 | `client` |
+
+The alternative is to leave the order at six and treat `agent` and `objective` as
+sub-tasks of the steps that need them. That hides two trait designs inside other work,
+which is how a trait gets designed to fit its first caller instead of its purpose.
+
+### Findings Held For Steps 5 And 6
+
+The viewer was scoped before being deferred. Recording the conclusions so they are not
+re-derived.
+
+**Transport.** Three options were weighed: a thin slice of the real `server` crate on
+tokio and axum, a throwaway crate on synchronous tungstenite, and compiling `sim-core`
+to WebAssembly and running the simulation in the browser tab. The first is preferred.
+`AGENTS.md` already commits to tokio and axum, so it introduces no new dependency
+decision, while the throwaway adds a crate outside the declared stack and is then
+deleted. WebAssembly needs a `wasm32` target and `wasm-pack`, neither installed on this
+machine, for a path the project has no other use for.
+
+**Real-time mode is not needed to watch a match.** Scripted policies run in-process and
+return immediately, so the lockstep driver can be paced by sleeping between ticks. That
+yields a watchable stream and full determinism at once, and leaves the real-time display
+mode deferred as `docs/DESIGN.md` intends rather than pre-empted.
+
+**Viewer controls need a schema change.** `ClientMsg` carries `Command`, `WatchBelief`
+and `Resync`. Pause, single-step and speed control have no variant, and the simulation
+clock is server-side, so a viewer cannot pause locally without buffering — which is the
+save-file behaviour ruled out. Adding a variant means bumping `PROTOCOL_VERSION`. Cheap
+now, expensive once matches are recorded.
+
+**Range overlays are the feature worth having.** Drawing each tank's sense radius at 120
+units and comms radius at 200 makes the network partition visible as it forms and
+dissolves. Without them the viewer shows a generic shooter; with them it shows the thing
+under study. Roughly twenty lines, no backend involvement.
+
+**Toolchain present.** Node 24.18.1, npm 11.16.0. `client/` holds only the generated
+`schema.ts`, so `package.json`, a Vite config and an entry point are all still needed.
