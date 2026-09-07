@@ -115,6 +115,15 @@ pub enum Event {
         winner: Option<TeamId>,
         tick: Tick,
     },
+    /// A policy entered a named stance. Emitted on change only, by the runner,
+    /// so "what was tank three doing when it died" is a query. Not reproducible
+    /// from a replay: a stance is the policy's, not the world's, and the replay
+    /// records only what the policy returned. That is why it is a database row.
+    StanceChanged {
+        agent: AgentId,
+        stance: String,
+        tick: Tick,
+    },
 
     // -- Reserved. Not emitted in v0. ---------------------------------------
     MessageSent {
@@ -158,6 +167,7 @@ impl Event {
             Event::CommandIssued { .. } => "command_issued",
             Event::ActionSubmitted { .. } => "action_submitted",
             Event::MatchEnd { .. } => "match_end",
+            Event::StanceChanged { .. } => "stance_changed",
             Event::MessageSent { .. } => "message_sent",
             Event::MessageDelivered { .. } => "message_delivered",
             Event::MessageDropped { .. } => "message_dropped",

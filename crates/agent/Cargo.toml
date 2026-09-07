@@ -1,0 +1,22 @@
+[package]
+name = "agent"
+description = "The agent interface, scripted baselines, and the match runner."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+schema = { path = "../schema" }
+sim-core = { path = "../core" }
+spawn = { path = "../spawn" }
+events = { path = "../events" }
+rand = { workspace = true }
+# A doctrine is data. TOML for hand-written files, JSON as the canonical form a
+# language model reads and writes, both through serde.
+serde = { workspace = true }
+toml = { workspace = true }
+# `WorldModel::encode` measures a message against a byte budget as it would go on
+# the wire, and the wire is JSON for now.
+serde_json = { workspace = true }

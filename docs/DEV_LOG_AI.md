@@ -9,6 +9,424 @@ here as a suggestion and the specification is left untouched.
 
 ---
 
+## Step 4 — `agent` — 2026-09-07
+
+**Scope.** v0 build order step 4: the `Policy` trait, scripted baselines, the socket
+bridge. Widened by decision during planning to include the doctrine layer, the
+`WorldModel` trait pulled forward from the deferred list, and the schema seam a
+later language-model control center will command through. Built as five runnable
+sub-steps, recorded here as each lands.
+
+### 4a — Crate, `Policy`, `Runner`, Baselines
+
+| File | Role | Lines |
+|---|---|---|
+| `lib.rs` | `Policy` trait, `DECISION_HZ`, re-exports | 60 |
+| `runner.rs` | The match loop: spawner, decisions, physics, bus | 300 |
+| `baseline.rs` | `Idle`, `NearestShape` | 180 |
+| `geom.rs` | Vector arithmetic on `schema::Vec2`, which has no operators by design | 50 |
+| `examples/headless_match.rs` | Ten tanks farm for ten minutes | 80 |
+| `tests/runner.rs` | Determinism, cadence, command delivery, first kill | 200 |
+
+`Policy::decide(&mut self, obs: &Observation, now: Tick) -> Action`, the
+`docs/DESIGN.md` signature. A policy that wants randomness owns a generator seeded
+from the match seed and its own identity; nothing is passed in.
+
+The runner is `record_match`'s hand-written loop made reusable. Decisions run every
+five ticks — 5 Hz against 25 Hz physics, as §Sensing specifies — and an agent's last
+action is held between them, which is why a replay of scripted policies is mostly
+repeat markers. Four choices worth stating:
+
+- **Commands are delivered on the decision tick after they were issued**, to every
+  teammate a command names, or to the whole team for `SetObjective`. Ungated by
+  range: the comms model owns that question and is deferred, so the runner does not
+  pre-empt it with a radius check. Recorded in `Inputs.commands` on the tick issued.
+- **Decision time is measured, not enforced.** Enforcing the budget in lockstep
+  would make outcomes machine-dependent. The runner keeps wall time per seat for the
+  summary. `ActionSubmitted.latency_us` stays zero because `World::apply_actions`
+  writes the event and `Inputs` has no slot for it; carrying it through is a schema
+  change for when budgets are enforced.
+- **The winner is whichever team leads on score**, which is nobody until the
+  objective crate exists. A placeholder, like `record_match`'s hard-coded `TeamId::A`.
+- **A tank's `commands` are dropped.** Only a control center seat may command.
+
+`NearestShape` drives at the nearest visible shape and fires when reloaded. With
+nothing in sight it heads for the arena centre, and that case is not hypothetical:
+shapes keep clear of the bases by one sense radius, so a tank on its spawn point sees
+nothing at all and a baseline without the fallback sits still forever.
+
+**Measured.** `cargo run -p agent --example headless_match --release`: a ten-minute
+match, 15,000 ticks, 272,656 events, simulated in 1.6 seconds. Kills A 913, B 924.
+36,000 decisions at a mean under one microsecond. The first time a tank has killed
+anything in this sandbox.
+
+Tests: 11 in `agent`; workspace green; `cargo fmt --check` and `cargo clippy
+--workspace --all-targets -D warnings` clean. `one_seed_two_runs_one_event_stream`
+compares two full event streams as serialised text. `rustfmt` on the 1.90 toolchain
+re-wrapped one import list in `crates/core/src/world.rs`; kept, since the check
+must pass on the toolchain in use.
+
+### 4b — `WorldModel` And `DenseGrid`
+
+Pulled forward from the deferred list by the user's decision during planning.
+
+| File | Role | Lines |
+|---|---|---|
+| `model/mod.rs` | The `WorldModel` trait, verbatim from `docs/DESIGN.md`, plus `ingest_visible` | 80 |
+| `model/grid.rs` | `DenseGrid`: cells, frontiers, hearsay, `encode`, `footprint` | 400 |
+| `model/tracks.rs` | `TrackList`: capped, aged, negative evidence | 210 |
+| `tests/model.rs` | Fourteen tests, from the outside | 480 |
+
+**The dense grid rather than the quadtree.** The design names the quadtree as the
+first implementation and gives two reasons: bounded memory and graceful truncation
+for comms. The first is met by a fixed grid — thirty-two cells a side, a state byte
+and a tick per cell, five kilobytes. The second is comms work, deferred with comms.
+The trait is what makes the quadtree a local change later.
+
+**Confidence is computed, not stored.** A cell holds its state and the tick it was
+last observed; confidence is a half-life of that age, worked out when asked. One
+fewer thing to keep consistent and four fewer bytes per cell.
+
+**Only ground goes in the grid.** Free space, shapes and control centers occupy
+cells. Tanks are tracks — §What The Quadtree Does Not Hold — and bullets are
+nothing at all. Shapes are tracked too, against the design's "shape field", because
+a farming baseline needs a position to drive at and a dense grid has no field
+structure yet. The cap at 128 tracks is what forces the model to forget, and it
+forgets the stalest.
+
+**Negative evidence.** An entity believed to be inside the sensed disc that was not
+among the entities seen there is gone, and its track is dropped. The disc is
+shrunk by a tenth for this so an entity on the rim is not forgotten and re-learned
+twice a second. This is why memory pays: a shape farmed by someone else stops
+being a destination the moment it is looked for.
+
+**Hearsay is taken only when fresher.** `ingest_belief` replaces a track when the
+incoming `last_seen` is later than the held one and otherwise ignores it, so a
+rumour that comes back is not news and cannot become confidence. Map patches
+follow the same rule per cell. Intent and requests are for a policy to read; the
+map holds neither.
+
+**`frontiers` is ordered by ignorance.** Unknown cells with a known neighbour
+first, then known cells not looked at for ten seconds, nearest first within a tier.
+The trait's doc comment records that a prior — where the things worth finding
+probably are — would weight this ordering and that the signature does not preclude
+it. That is the scenario's belief-weighted frontier, held as a suggestion.
+
+**`encode` is exact.** It serialises the candidate message as it grows and stops
+before the byte budget, freshest first for tracks, nearest first for cells. Ordering
+ties break on entity identity or cell index, so two models with one history produce
+one message; the test asserts it.
+
+**`schema::Track` gained `kind`, `tier` and `hp`**, all optional with serde defaults.
+Additive, `PROTOCOL_VERSION` unmoved, `schema.ts` regenerated. A track that cannot
+say tank-or-shape is useless to a policy; the wire type had no way to say it.
+
+**`Policy::footprint`** was added as a default method returning zero, so the runner
+can report the largest memory any seat holds. The ceiling is still not enforced.
+
+**Measured.** `NearestKnownShape` — the forgetful baseline plus a `DenseGrid`,
+farming from memory and heading for a frontier when memory is empty — makes 2,204
+kills in a ten-minute match where `NearestShape` makes 1,837, on the same seed.
+Memory is worth twenty per cent. Footprint 10,344 bytes per tank against the
+16,384 ceiling; fixed from the first decision, because every allocation is made
+once.
+
+Tests: 27 in `agent`; workspace green; `fmt --check` and `clippy -D warnings` clean.
+
+### 4c — The Doctrine Engine
+
+| File | Role | Lines |
+|---|---|---|
+| `doctrine/spec.rs` | The vocabulary as serde data: `Doctrine`, `RoleBehaviour`, `Stance`, `Predicate`, `Drives`, `TargetSpec`, `FireSpec`, `Cohesion` | 330 |
+| `doctrine/mod.rs` | Loading (TOML, JSON), validation with a path per issue, composition, seating | 430 |
+| `doctrine/ctx.rs` | One decision's context: contacts, orders, landmarks, the group centroid | 240 |
+| `doctrine/predicate.rs` | Guard evaluation | 50 |
+| `doctrine/drive.rs` | Ten named steering terms, summed by weight | 170 |
+| `doctrine/target.rs` | Linear target scoring | 120 |
+| `doctrine/fire.rs` | Mode, burst, requirements, silence, lead | 100 |
+| `doctrine/engine.rs` | `DoctrinePolicy` | 190 |
+| `config/doctrine/{baseline,aggressive,defensive}.toml` | The shipped doctrines | 30 each |
+| `tests/doctrine.rs` | Eleven tests | 420 |
+
+**The vocabulary.** A doctrine is a composition of `schema::Role`s — the fixed seven,
+reused rather than duplicated, because role entropy is a metric — and a behaviour
+per role. A behaviour is an ordered list of stances, a target scorer, a fire block
+and cohesion rules. A stance is a name, a predicate and weighted drives; the first
+stance whose predicate holds is in force, and the last must be `always`. Every name
+in the vocabulary is a line in a prompt, which is why there are ten drives and
+fourteen predicates rather than more.
+
+**Why serde and not a configuration language.** Validation lives at the runtime
+boundary because a doctrine written at runtime by a model never passes through an
+offline compiler; whatever a configuration language would check, `validate` must
+check anyway. It reports every issue at once with a path — `behaviour.screen.
+stances[1].drives.seek_target: must be a finite weight within ±10` — so an author
+fixes a file in one pass and a model can be told exactly what to change. Unknown
+fields are parse errors, not silent ignores. TOML for hand-written files, JSON as
+the canonical form; both round-trip, and a test proves it for each shipped file.
+
+**The baseline doctrine is the baseline policy.** `baseline.toml` reproduces
+`NearestShape` — nearest visible shape, fire when reloaded, centre when nothing is
+in sight — and a test holds the two to the same thrust, aim and fire on the same
+observations for six hundred ticks, ten tanks, twelve hundred decisions. If the
+vocabulary could not say the trivial thing it could not be trusted with anything.
+
+**Drives are a potential field with names.** Each yields a direction of length one
+or less; the weighted sum is normalised, so weights set the mix and not the speed.
+`cohere` is the leash: toward the group beyond the maximum, away inside the
+minimum, nothing between. `keep_range` is the standoff, `explore` is the model's
+nearest frontier, `wander` is the agent's seeded generator held for two seconds so
+ties never leave a tank sitting still.
+
+**Fire discipline is defined and unpriced.** Mode, burst, requirements, a silence
+predicate, and lead — bullets do not inherit the firer's velocity, so leading is a
+first-order intercept. A round is a decision window with fire held on, not a bullet;
+at five ticks a window and fifteen a reload, one round is one shot. Until sensing is
+a sweep and comms carry position, silence buys nothing measurable, and the module
+says so.
+
+**Commands steer.** `AssignRole` swaps the behaviour and resets the burst;
+`SetObjective`, `DesignateTarget` and `SetRally` are held as orders that predicates
+and drives read. A test has the control center reassign a screen to scout and
+declare `HoldNest`, and the stance histogram shows the tank in scout stances from
+its second decision and the screens in `hold_nest`.
+
+**Finding: cohesion without comms is cohesion by sight.** The leash holds while the
+group is in view of itself — screens at a spread of 20 to 40 units against pushers
+at 120 to 180 over the opening — and fragments later. A screen that loses sight of
+the others drives to where the group last was, arrives, and farms there while the
+group has moved on. Nothing can tell it otherwise. The group centroid is remembered
+across decisions for exactly this reason, and the remembered point is what the
+`TrackSet` belief message will replace with a live one when comms land. The leash
+test asserts the claim that is true in v0 and says why the window is early.
+
+**Finding: the leash must outweigh the target.** At `cohere = 0.6` against
+`seek_target = 1.0` a shape beyond the leash pulled the screen off it every time.
+The shipped screens carry `cohere = 2.0`; a doctrine author sets that dial, and the
+validator only asks that it stay within ±10.
+
+**The runner counts stances.** `Policy::stance` returns the named mode; the runner
+keeps decisions per stance per seat. That is the in-memory half of "which stance
+was tank three in when it died"; 4d writes the change events to the database.
+
+**Measured.** Aggressive against defensive, ten minutes: 384 kills to 342, at 18
+microseconds a decision and 11,192 bytes a tank. Team A: farm 54%, scout 39%,
+retreat 6%, engage 1%. Team B: farm 72%, scout 19%, retreat 9%. Fewer kills than
+farming baselines make, because scouts do not farm and pushers fight.
+
+`schema::Role` gained `PartialOrd, Ord` so behaviour can be keyed by role in an
+ordered map. Additive.
+
+Tests: 38 in `agent`; workspace green; `fmt --check` and `clippy -D warnings` clean.
+
+### 4d — The Command Seam
+
+Three additions to the wire, all additive, `PROTOCOL_VERSION` unmoved,
+`client/src/gen/schema.ts` regenerated.
+
+**`Command::SetDoctrine { agent, doctrine: DoctrineId }`.** Switch a tank to
+another doctrine from the library its team was seated with. `DoctrineId` is a
+name, not a number: the command is written into the match record, and
+`"aggressive"` is a fact a reader can use where `2` is not. That choice ends
+`Command`'s `Copy`; five clone sites were the whole cost. A `DoctrineLibrary` —
+the control center's menu, shared by a team behind an `Arc` — is what the name
+resolves against. A name not on the menu, or a doctrine with no behaviour for the
+tank's current role, is refused and counted; nothing changes and nothing is
+guessed.
+
+**`Command::TuneDoctrine { agent, knob: Knob, value }`.** One named dial, zero to
+one: cohesion, aggression, fire discipline, explore bias, standoff. Reserved, in
+the sense the comms variants are reserved: defined, serialised, delivered and
+counted, acted on at v0.8 when the control center that turns dials exists. The
+set is small so that a language model's action space is bounded.
+
+**`Event::StanceChanged { agent, stance, tick }`.** Raised by the runner when a
+policy's named stance differs from the one it last reported, and only then; a
+repeat is not a row. Published ahead of the world's events for the tick, because
+the decision came first. The database stores it, and the example prints the
+query: `select payload->>'stance', count(*) from events where kind =
+'stance_changed' group by 1` — on a five-minute match, `retreat 228`, `farm 240`,
+`scout 69`, `engage 12`, `roam 3`.
+
+**A row the replay cannot regenerate.** A stance is the policy's, not the world's.
+The replay records what the policy returned, so a re-simulation from inputs
+reproduces every world event and no stance change. That is consistent with the
+design's rule — what must outlive a code change belongs in the database — and it
+is the first case of a database row with no replay behind it. Worth knowing when
+comparing a recorded match against its re-simulation.
+
+**Not added: `Origin::Llm`.** Whether a language-model commander should be
+distinguishable from a scripted one in the record is the user's call. Held as a
+suggestion for `docs/DESIGN.md` §Commands. `Origin::Policy` is correct until then.
+
+Tests: 43 in `agent`; workspace green; `fmt --check` and `clippy -D warnings` clean.
+
+### 4e — The Socket Bridge
+
+| File | Role | Lines |
+|---|---|---|
+| `bridge.rs` | `Link`, `SocketPolicy`, `LinkStats` | 215 |
+| `scripts/policy_client.py` | The trivial baseline in Python, standard library only | 90 |
+| `tests/bridge.rs` | Four tests against a client thread | 240 |
+
+**The protocol is two schema types and a newline.** The simulation writes one
+`Observation` per decision and reads one `Action` back, newline-delimited JSON,
+nothing else. The observation carries its tick and the agent it is for, so one
+connection serves every tank on a team in turn — lockstep asks them one at a time
+anyway — and there is no envelope and no handshake. The JSON a client sees is the
+JSON `client/src/gen/schema.ts` already describes. No tokio: lockstep is
+synchronous by definition, and the async runtime arrives with `server`.
+
+**A late reply is owed, not confused.** The read has a timeout. A reply that
+misses it becomes `Action::idle()`, is counted, and is remembered as owed; before
+the next observation goes out the owed replies are read and discarded, so a slow
+client never has its answer to tick 0 taken as its answer to tick 5. A test sits on
+the first observation for twice the timeout and checks the next two answers are
+their own. A reply that does not parse is an idle and a count. A connection that
+closes is dead, and every decision after it is idle without waiting.
+
+**The bridge is transparent.** A test drives team A over a socket from a thread
+running the in-process `NearestShape` and compares the whole event stream with an
+unbridged run on the same seed: byte-identical. The replay is exact whatever the
+process does, because it records what came back; determinism of the live run is
+the client's business.
+
+**Measured.** `headless_match 2 7 bridge` with `python3 scripts/policy_client.py`
+on the other end: 3,000 decisions over the socket, 0 timeouts, 0 malformed, and
+the Python baseline made 211 kills to the defensive doctrine's 128. Python beat the
+doctrine because it farms every shape it sees and the doctrine's scout farms
+nothing; that is the doctrine's choice, not the bridge's.
+
+Tests: 47 in `agent`; workspace green; `fmt --check` and `clippy -D warnings` clean.
+
+### Step 4 Complete
+
+Five runnable sub-steps, each executed before the next began. The `agent` crate is
+2,800 lines of source and 1,700 of tests, with no external dependency the workspace
+did not already have.
+
+**The configuration language decision, recorded.** The user proposed KCL. Not
+adopted, and the reason is the user's own later constraint: a language model at
+the control center will write doctrine at runtime, and a doctrine written at
+runtime never passes through an offline compiler. Whatever KCL would validate, the
+Rust boundary must validate anyway, so KCL's core value is duplicated rather than
+saved. Its Rust binding is a git dependency from `github.com/kcl-lang/lib` — the
+`kcl` and `kcl-lib` crates on crates.io are the KittyCAD Language, an unrelated
+project — and a multi-crate compiler in a workspace whose determinism rests on a
+pinned lockfile bought nothing at runtime. The doctrine is plain serde: TOML for
+hand-written files, JSON as the canonical form. Because the runtime reads plain
+JSON, KCL, Jsonnet or a Python script can generate sweeps of doctrines later at
+zero cost to the runtime. If in-process generation is ever wanted, `jrsonnet` is
+pure Rust and on crates.io; if per-tick scripting is ever wanted, Rhai's operation
+limit is the compute budget `docs/DESIGN.md` §Budgets defers.
+
+**The three-layer mapping.** The literature on language-model commanders for
+multi-robot teams converges on structured output against a fixed schema, verified
+before use, inside the classic deliberative–sequencing–reactive architecture. Here:
+the control center emits `Command`s in seconds; stances sequence at 5 Hz; drives
+react at 5 Hz and are held across 25 Hz physics. The language model sits upstream
+of `Command`, commands land in `Inputs`, and the replay is exact even though the
+model is not.
+
+### Suggestions
+
+**`docs/DESIGN.md` §Agents: the doctrine layer.** The section specifies the
+`Policy` trait and two deployment modes. Between them now sits a third thing: a
+policy configured by data. Worth a paragraph naming the vocabulary — stances,
+drives, target scorer, fire discipline, cohesion — and the rule that a doctrine
+can say nothing the engine cannot do, which is why anything else goes over the
+socket.
+
+**`docs/DESIGN.md` §Agents: the control center is asynchronous.** A control center
+policy returns `Action::idle()` until it has something to say, then emits commands.
+Nothing waits on it. That is what makes a language model at the center compatible
+with lockstep, and it is not written down.
+
+**`docs/DESIGN.md` §Commands: `Origin::Llm`.** Whether a language-model commander
+should be distinguishable from a scripted one in the match record. Cheap now,
+expensive after matches are shared.
+
+**`docs/DESIGN.md` §Belief: the group centroid.** A leash needs to know where the
+group is, and without comms that is by sight alone. The `TrackSet` message is what
+makes cohesion hold beyond sense radius; the section could say that this is one of
+the first things the comms model buys.
+
+**`AGENTS.md` build order.** Steps 1 through 5 are complete. Step 6, `objective`,
+is next. The Deferred list still names the world model; it is built, as a dense
+grid behind the trait, with the quadtree and `encode` truncation deferred with
+comms.
+
+**`AGENTS.md` Deferred: `TuneDoctrine`.** Reserved in the schema like the comms
+variants. Acted on at v0.8.
+
+### Carried Forward
+
+- `Event::MatchEnd` is still pushed by the runner with a score-leader placeholder
+  for the winner. `objective` owns it.
+- `ActionSubmitted.latency_us` stays zero: `World` writes the event and `Inputs`
+  has no slot for it. Carrying the runner's measurement through is a schema change
+  for when budgets are enforced.
+- Command delivery is ungated by range. The comms model owns gating.
+- Cohesion without comms is cohesion by sight. The leash fragments when the group
+  leaves its own view; `TrackSet` over the comms model is the fix.
+- Fire discipline is defined and unpriced until the sensor sweep and the comms
+  model make a shot an emission.
+- The wing placement discrepancy between the two documents and `SpawnConfig`
+  is still open.
+
+---
+
+## Reader On Coordination — 2026-09-07
+
+**Scope.** No code. `docs/AI_AGENT_DOC.md` written at the user's request: a book-form
+summary of robot and drone coordination across control theory, allocation, fusion,
+communication, learning, human command, language models and rescue robotics, with a
+chapter placing each sandbox component on its shelf and a closing chapter of
+twenty-one proposals for active policy creation. Sources were searched during the
+session and are linked per chapter. A new file under `docs/`, created because it was
+asked for by name; nothing else under `docs/` was touched.
+
+### The Scenario, Recorded
+
+The user stated the motivating use case. A flooded plain; one boat; five cheap drones
+in a backpack; more people to reach than the boat can carry. Drones go ahead to find
+survivors, must fly low and enter confined spaces, and may not come back; the planar
+LIDAR exists to navigate terrain, not to spot people from altitude. The arena is a
+stepping stone and its ambit does not change. Team-against-team stays as a game
+mechanic. The project is not for warfare.
+
+The reader's first Chapter 13 drew field lessons from the war in Ukraine. Withdrawn at
+the user's direction and replaced with a rescue chapter: optimal search theory,
+Murphy and Manzini on why overhead imagery does not find flood victims, the DARPA
+Subterranean Challenge and CSIRO's reversal from a relay backbone to
+autonomy-and-return, the Team Surviving Orienteers problem, capacitated orienteering
+for the pickup, and RoboCup Rescue as the simulation lineage. The feints proposal
+stays, at the user's direction, under tactical oversight.
+
+### Scenario Implications, Held As Suggestions
+
+None applied. Each names the step that owns it.
+
+- **Fire discipline is emission discipline.** A shot is one kind of active emission;
+  a radio message is another. The doctrine's `fire` block keeps its name in step 4;
+  when the comms model prices transmission, `silent_when` should govern both.
+- **`WorldModel::frontiers` should accept a prior.** Step 4 orders frontiers by
+  staleness. The signature must not preclude weighting by where survivors probably
+  are. For `docs/DESIGN.md` §World Model.
+- **A stance guarded on imminent loss** — the last message — needs only predicates
+  step 4 already defines, once messages exist. For the comms model.
+- **Confined regions** where sense and comms radii shrink, and **a delivery
+  objective** where a found survivor scores only when a capacity-limited carrier
+  reaches it, are arena and objective work. For `docs/DESIGN.md` §Arena and
+  §Objective, at v0.5 and step 6.
+- **`Role` needs nothing.** Scout, screen, relay, regroup already read as rescue roles.
+
+Step 4 planning is complete. The plan settles TOML/JSON through serde for doctrine and
+does not adopt KCL; the reason and the alternatives will be recorded here when the
+step is built.
+
+---
+
 ## Specification Sync — 2026-09-07
 
 **Scope.** No code. The backlog of suggestions this log has accumulated since step 2

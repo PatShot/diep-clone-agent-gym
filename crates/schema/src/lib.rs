@@ -26,7 +26,7 @@ pub use belief::{
     BeliefMsg, BeliefOverlay, CellState, Inbound, Intent, Interest, MapCell, Outbound, Recipient,
     Track,
 };
-pub use command::{Command, ObjectiveHint, Origin, Role};
+pub use command::{Command, DoctrineId, Knob, ObjectiveHint, Origin, Role};
 pub use entity::{
     Cause, Class, EntityDelta, EntityView, HealthGroup, Kind, PhysicsGroup, PositionGroup,
     ScoreGroup, ScoreReason, ShapeTier, Stats, StyleGroup, TeamGroup,

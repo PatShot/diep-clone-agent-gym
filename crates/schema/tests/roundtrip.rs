@@ -246,6 +246,9 @@ fn belief_message_roundtrips_including_raw() {
                 vel_estimate: Vec2::new(1.0, 0.0),
                 last_seen: Tick(80),
                 uncertainty: 200.0,
+                kind: Some(Kind::Tank),
+                tier: None,
+                hp: Some(12.5),
             }],
         },
         BeliefMsg::Intent {

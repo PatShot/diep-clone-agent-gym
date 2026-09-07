@@ -85,7 +85,7 @@ export type ClientMsg = { "t": "command", team: TeamId, cmd: Command, } | { "t":
  * is a request delivered to an agent, and the agent's policy decides what to do
  * with it.
  */
-export type Command = { "cmd": "set_objective", hint: ObjectiveHint, } | { "cmd": "assign_role", agent: AgentId, role: Role, } | { "cmd": "designate_target", agent: AgentId, target: EntityId, } | { "cmd": "set_rally", agent: AgentId, pos: Vec2, } | { "cmd": "request_report", agent: AgentId, };
+export type Command = { "cmd": "set_objective", hint: ObjectiveHint, } | { "cmd": "assign_role", agent: AgentId, role: Role, } | { "cmd": "designate_target", agent: AgentId, target: EntityId, } | { "cmd": "set_rally", agent: AgentId, pos: Vec2, } | { "cmd": "request_report", agent: AgentId, } | { "cmd": "set_doctrine", agent: AgentId, doctrine: DoctrineId, } | { "cmd": "tune_doctrine", agent: AgentId, knob: Knob, value: number, };
 
 /**
  * Continuous control output. `thrust` is a direction and magnitude in world
@@ -93,6 +93,13 @@ export type Command = { "cmd": "set_objective", hint: ObjectiveHint, } | { "cmd"
  * heading in radians.
  */
 export type Control = { thrust: Vec2, aim: number, fire: boolean, };
+
+/**
+ * A doctrine, by name, in the library a team was seated with. A name rather
+ * than a number because the command is written into the match record, and
+ * `"aggressive"` is a fact a reader can use where `2` is not.
+ */
+export type DoctrineId = string;
 
 /**
  * Why the broker discarded a message.
@@ -132,7 +139,7 @@ export type EntityView = { id: EntityId, position: PositionGroup, physics: Physi
  * matches is not. The comms and budget variants are reserved now and not emitted
  * in v0.
  */
-export type Event = { "kind": "match_start", "payload": { seed: string, config_hash: string, match_id: string, } } | { "kind": "tick_begin", "payload": { tick: Tick, } } | { "kind": "spawned", "payload": { id: EntityId, kind: Kind, pos: Vec2, team: TeamId | null, focus: FocusId | null, } } | { "kind": "despawned", "payload": { id: EntityId, cause: Cause, } } | { "kind": "damaged", "payload": { target: EntityId, source: EntityId, amount: number, remaining: number, } } | { "kind": "killed", "payload": { target: EntityId, killer: EntityId, } } | { "kind": "scored", "payload": { team: TeamId, delta: number, total: number, reason: ScoreReason, } } | { "kind": "command_issued", "payload": { team: TeamId, origin: Origin, cmd: Command, } } | { "kind": "action_submitted", "payload": { agent: AgentId, action: Action, latency_us: number, } } | { "kind": "match_end", "payload": { winner: TeamId | null, tick: Tick, } } | { "kind": "message_sent", "payload": { from: AgentId, to: Recipient, bytes: number, tick: Tick, } } | { "kind": "message_delivered", "payload": { from: AgentId, to: AgentId, bytes: number, latency_ticks: number, } } | { "kind": "message_dropped", "payload": { from: AgentId, to: Recipient, reason: DropReason, } } | { "kind": "budget_exceeded", "payload": { agent: AgentId, kind: BudgetKind, 
+export type Event = { "kind": "match_start", "payload": { seed: string, config_hash: string, match_id: string, } } | { "kind": "tick_begin", "payload": { tick: Tick, } } | { "kind": "spawned", "payload": { id: EntityId, kind: Kind, pos: Vec2, team: TeamId | null, focus: FocusId | null, } } | { "kind": "despawned", "payload": { id: EntityId, cause: Cause, } } | { "kind": "damaged", "payload": { target: EntityId, source: EntityId, amount: number, remaining: number, } } | { "kind": "killed", "payload": { target: EntityId, killer: EntityId, } } | { "kind": "scored", "payload": { team: TeamId, delta: number, total: number, reason: ScoreReason, } } | { "kind": "command_issued", "payload": { team: TeamId, origin: Origin, cmd: Command, } } | { "kind": "action_submitted", "payload": { agent: AgentId, action: Action, latency_us: number, } } | { "kind": "match_end", "payload": { winner: TeamId | null, tick: Tick, } } | { "kind": "stance_changed", "payload": { agent: AgentId, stance: string, tick: Tick, } } | { "kind": "message_sent", "payload": { from: AgentId, to: Recipient, bytes: number, tick: Tick, } } | { "kind": "message_delivered", "payload": { from: AgentId, to: AgentId, bytes: number, latency_ticks: number, } } | { "kind": "message_dropped", "payload": { from: AgentId, to: Recipient, reason: DropReason, } } | { "kind": "budget_exceeded", "payload": { agent: AgentId, kind: BudgetKind, 
 /**
  * Bytes over the memory ceiling, or microseconds over the time budget.
  */
@@ -196,6 +203,16 @@ export type Kind = "tank" | "shape" | "bullet" | "control_center";
  * separate from the discrete event stream.
  */
 export type Kinematic = { tick: Tick, entity: EntityId, pos: Vec2, vel: Vec2, heading: number, };
+
+/**
+ * One dial of a doctrine a control center may turn without rewriting it. The
+ * set is small and named so that a language model's action space is bounded.
+ *
+ * Reserved: defined, validated and recorded now, acted on at v0.8 when the
+ * control center that turns them exists. Adding variants later is cheap;
+ * migrating a database of recorded matches is not.
+ */
+export type Knob = "cohesion" | "aggression" | "fire_discipline" | "explore_bias" | "standoff";
 
 /**
  * One node of a truncated occupancy tree. Depth is the bandwidth dial: cut the
@@ -310,6 +327,9 @@ export type ReplayLine = { "t": "header", protocol: number, arena: ArenaInfo, ma
  * A role a CC can assign. The set is deliberately small. Role entropy across a
  * team is one of the metrics, and it only means something if the vocabulary is
  * fixed.
+ *
+ * Ordered so a doctrine can key behaviour by role in a map with a stable
+ * iteration order; the order itself means nothing.
  */
 export type Role = "farm" | "screen" | "scout" | "relay" | "push" | "defend" | "regroup";
 
@@ -443,7 +463,16 @@ id: EntityId | null, team: TeamId | null, last_pos: Vec2, vel_estimate: Vec2, la
 /**
  * Radius of the disc the entity is believed to be inside.
  */
-uncertainty: number, };
+uncertainty: number, 
+/**
+ * What was seen. A track that cannot say tank-or-shape is useless to a
+ * policy. Absent in a message from a model that does not classify.
+ */
+kind?: Kind | null, tier?: ShapeTier | null, 
+/**
+ * Health when last seen. Enough to prefer a wounded target.
+ */
+hp?: number | null, };
 
 /**
  * A point or a vector in world coordinates. Origin sits at the top-left corner of

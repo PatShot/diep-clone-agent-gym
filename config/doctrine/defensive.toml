@@ -1,0 +1,30 @@
+# Defensive: four in constant tandem, one scout beyond eyesight.
+#
+# The screen stays within sixty units of its own centroid — the leash outweighs the
+# target, so a shape beyond it is left alone — engages only with two teammates
+# close by, and holds the nest when the control center says so. The
+# scout keeps between 140 and 320 units from the pack — past the 120-unit sense
+# radius — and never fires.
+
+name = "defensive"
+roles = [{ role = "screen", count = 4 }, { role = "scout", count = 1 }]
+
+[behaviour.screen]
+cohesion = { leash = { to = "team_centroid", max = 60.0 }, spacing = 25.0 }
+target = { weights = { value = 1.0, distance = -0.2, hp = -0.05, enemy_tank = 40.0, threat = -20.0, designated = 1000.0, staleness = -0.5 } }
+fire = { mode = "burst", burst = { rounds = 4, gap_ticks = 10 }, require = { within = 100.0 }, lead = true }
+stances = [
+  { name = "retreat", when = { hp_below = 0.35 }, drives = { home = 1.0, avoid_enemy = 0.6, separate = 0.2 } },
+  { name = "hold_nest", when = { all_of = [{ objective_is = "hold_nest" }, { no_enemy_within = 100.0 }] }, drives = { hold = { region = { shape = "disc", center = { x = 500.0, y = 500.0 }, radius = 120.0 }, weight = 1.0 }, seek_target = 0.5, separate = 0.3 } },
+  { name = "engage", when = { all_of = [{ enemy_within = 100.0 }, { teammates_within = { radius = 80.0, at_least = 2 } }] }, drives = { seek_target = 1.0, keep_range = { standoff = 70.0, weight = 0.8 }, cohere = 1.5 } },
+  { name = "farm", when = "always", drives = { seek_target = 1.0, cohere = 2.0, separate = 0.3, explore = 0.1 } },
+]
+
+[behaviour.scout]
+cohesion = { leash = { to = "team_centroid", min = 140.0, max = 320.0 } }
+target = { enemies = false }
+fire = { mode = "hold" }
+stances = [
+  { name = "evade", when = { enemy_within = 110.0 }, drives = { avoid_enemy = 1.0, cohere = 0.3 } },
+  { name = "scout", when = "always", drives = { explore = 1.0, cohere = 1.5, wander = 0.1 } },
+]

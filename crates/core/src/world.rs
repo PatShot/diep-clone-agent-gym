@@ -37,8 +37,8 @@ use std::collections::BTreeMap;
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use schema::{
-    AgentId, Cause, EntityId, EntityView, Event, Kind, Kinematic, Observation, SelfView,
-    ShapeTier, Stats, TeamId, Tick, Vec2,
+    AgentId, Cause, EntityId, EntityView, Event, Kind, Kinematic, Observation, SelfView, ShapeTier,
+    Stats, TeamId, Tick, Vec2,
 };
 
 use crate::arena::ArenaSpec;
@@ -347,7 +347,7 @@ impl World {
             self.events.push(Event::CommandIssued {
                 team: *team,
                 origin: *origin,
-                cmd: *cmd,
+                cmd: cmd.clone(),
             });
         }
     }

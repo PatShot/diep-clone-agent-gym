@@ -1,0 +1,30 @@
+# Aggressive: maximum exploration, out of contact with each other, frequent bursts.
+#
+# Three pushers with no leash who fight anything they meet and explore when they
+# have nothing to farm, and two scouts held at least a sense radius out from the
+# pack. The scouts never fire.
+
+name = "aggressive"
+roles = [{ role = "push", count = 3 }, { role = "scout", count = 2 }]
+
+[behaviour.push]
+cohesion = { spacing = 20.0 }
+# Enemy tanks are worth going after; threats around a target do not deter.
+target = { weights = { value = 1.0, distance = -0.1, hp = -0.1, enemy_tank = 80.0, threat = 0.0, designated = 1000.0, staleness = -0.5 } }
+fire = { mode = "burst", burst = { rounds = 3, gap_ticks = 5 }, require = { within = 115.0 }, lead = true }
+stances = [
+  { name = "retreat", when = { hp_below = 0.2 }, drives = { home = 1.0, avoid_enemy = 0.5 } },
+  { name = "engage", when = { enemy_within = 120.0 }, drives = { seek_target = 1.0, keep_range = { standoff = 60.0, weight = 0.5 } } },
+  { name = "farm", when = "has_target", drives = { seek_target = 1.0, explore = 0.4, separate = 0.2 } },
+  { name = "roam", when = "always", drives = { explore = 1.0, wander = 0.3 } },
+]
+
+[behaviour.scout]
+# Beyond eyesight of the pack: the minimum is more than a sense radius.
+cohesion = { leash = { to = "team_centroid", min = 150.0 } }
+target = { enemies = false }
+fire = { mode = "hold" }
+stances = [
+  { name = "evade", when = { enemy_within = 90.0 }, drives = { avoid_enemy = 1.0 } },
+  { name = "scout", when = "always", drives = { explore = 1.0, cohere = 1.5, wander = 0.2 } },
+]

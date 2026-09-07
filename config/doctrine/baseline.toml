@@ -1,0 +1,19 @@
+# The trivial baseline, as a doctrine.
+#
+# Drive to the nearest visible shape and shoot it; with nothing in sight, head for
+# the centre. This is `agent::NearestShape` written in the doctrine vocabulary, and
+# a test holds the two to the same actions on the same observations. If the
+# vocabulary could not say this, it could not say anything.
+
+name = "baseline"
+roles = [{ role = "farm", count = 5 }]
+
+[behaviour.farm]
+# Nearest wins. Nothing else counts, and memory is switched off.
+target = { weights = { value = 0.0, distance = -1.0, hp = 0.0, enemy_tank = 0.0, threat = 0.0, designated = 0.0, staleness = 0.0 }, remembered = false, enemies = false }
+# Whenever reloaded, at anything in sight, aimed straight at it.
+fire = { mode = "free", require = { within = 100000.0 }, lead = false }
+stances = [
+  { name = "farm", when = "has_target", drives = { seek_target = 1.0 } },
+  { name = "centre", when = "always", drives = { hold = { region = { shape = "disc", center = { x = 500.0, y = 500.0 }, radius = 1.0 }, weight = 1.0 } } },
+]

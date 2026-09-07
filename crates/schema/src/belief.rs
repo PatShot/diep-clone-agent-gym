@@ -72,6 +72,15 @@ pub struct Track {
     pub last_seen: Tick,
     /// Radius of the disc the entity is believed to be inside.
     pub uncertainty: f32,
+    /// What was seen. A track that cannot say tank-or-shape is useless to a
+    /// policy. Absent in a message from a model that does not classify.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<crate::entity::Kind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tier: Option<crate::entity::ShapeTier>,
+    /// Health when last seen. Enough to prefer a wounded target.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hp: Option<f32>,
 }
 
 /// What an agent intends to do. Cheap to send and the highest value per byte on a
