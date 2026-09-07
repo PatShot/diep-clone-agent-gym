@@ -15,6 +15,8 @@ people can run experiments in.
 - Ask before scaffolding a new crate or adding a dependency.
 - Build in the order below. Do not skip ahead to the interesting parts.
 - One runnable milestone at a time. Each step must execute before the next begins.
+- Respect `Cargo.lock`. Determinism is an invariant, and a dependency that moves under
+  a recorded match breaks it. Do not run `cargo update` without asking.
 - The Agent is instructed not to edit the AGENTS.md and within `./docs/` but instead keep a log at `docs/DEV_LOG_AI.md`.
 - However, if the user asks - change simple substitutions etc for the user within these docs. Always confirm with user before making changes. 
 
@@ -54,17 +56,29 @@ We aim for 10 iterations via v0.0 -> v0.9
 
 ## v0 Build Order
 
-Current position: step 2 complete. Step 3 not started.
+Current position: steps 1, 2, 3 and 5 complete. Step 4, `agent`, is next.
+
+`agent` and `objective` are numbered here rather than left as sub-tasks of the steps
+that need them. `agent` follows `spawn` because a scripted baseline farms shapes and
+because the lockstep driver blocks until every agent replies, so the `Policy` trait has
+to precede it. `objective` precedes `server` because a match cannot end without a win
+condition. Folding either into a neighbouring step is how a trait gets designed to fit
+its first caller instead of its purpose.
 
 1. `schema` — Event enum, entity types, wire messages, TypeScript generation working.
 2. `core` — entities, fixed-step movement, circle collision, arena bounds. Headless. Bullet lifetime, contact damage, regeneration, and death were included by decision.
 3. `spawn` — uniform focus first, then nest focus, then wing foci. Config-driven.
-4. `events` — bus, file sink, SQLite sink. A match must write a queryable database.
-5. `server` — lockstep driver, WebSocket, snapshot and delta encoding, command intake.
-6. `client` — canvas render of arena, tanks, shapes, scores. Then replay file loading.
+4. `agent` — `Policy` trait, scripted baselines, socket bridge.
+5. `events` — bus, file sink, SQLite sink. A match must write a queryable database. Built ahead of step 4.
+6. `objective` — `Objective` trait, `PointTarget`. Scoring and the end condition.
+7. `server` — lockstep driver, WebSocket, snapshot and delta encoding, command intake.
+8. `client` — canvas render of arena, tanks, shapes, scores. Then replay file loading.
 
 Scripted policies stay trivial throughout: drive to nearest shape, shoot it. They
 exist to make the viewer show something, not to be good.
+
+Settled for v0, so it is not re-derived each session: one tank type, no class choice,
+uniform sense and comms radius across every tank, physics at 25 Hz.
 
 ## Invariants
 

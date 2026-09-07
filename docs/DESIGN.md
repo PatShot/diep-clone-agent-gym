@@ -65,9 +65,14 @@ A base is a sanctuary. Enemy tanks cannot enter it and enemy fire is destroyed a
 boundary. This removes spawn camping and gives a losing team somewhere to regroup, so
 one bad engagement does not decide the match.
 
-**Nest.** A disc of radius 150 at the arena centre. The only place high-tier shapes
-spawn. Because the richest resource sits equidistant from both bases, farming and
-fighting become the same decision. 
+**Nest.** A disc of radius 150 at the arena centre. The only place pentagons and alpha
+pentagons spawn. Because the richest resource sits equidistant from both bases, farming
+and fighting become the same decision.
+
+The nest is not a clearing. Squares and triangles fall inside the disc like anywhere
+else, because the scatter focus excludes nothing, and the nest piles its own shapes on
+top. The centre is therefore the densest ground on the map as well as the richest,
+which makes crossing it a navigation problem rather than a straight line.
 
 **Wings.** Optional secondary farming areas at the midpoints of the northeast and
 southwest edges. Off by default. They exist so a researcher can add a second and third
@@ -100,10 +105,27 @@ team goes blind. That tension is the sandbox.
 allocation, accumulated score, and a sensor. Controlled by a policy. Respawns in its
 base after a delay.
 
-**Shape.** A polygon that drifts slowly and does not fight back. Two tiers:
+**Shape.** A polygon that does not shoot back, though it deals contact damage. Four
+tiers, ordered:
 
-- Common. Scattered across the arena. Low health, low value.
-- High. Nest only. High health, high value. Cannot be farmed quickly by one tank.
+- Square. Scattered across the arena. Low health, low value.
+- Triangle. Scattered alongside squares. Roughly twice the health and two and a half
+  times the value, so it is a marginal improvement, not a reason to travel.
+- Pentagon. Nest only. High health, high value. Cannot be farmed quickly by one tank.
+- Alpha pentagon. Nest only, and barely larger than a pentagon. Worth six of them. A
+  team holding the nest and nothing else out-earns a team farming both wings
+  unopposed, which is what this tier exists to arrange.
+
+Squares and triangles drift and then come to rest. Drag stops a wandering shape, and a
+collision moves it a couple of units before it settles again. The alternative, a
+restoring pull toward the spawn point, was rejected: shapes being dragged home is a
+mechanic nobody can see. Pentagons and alpha pentagons do not drift at all. A prize
+that wanders is not a place worth contesting, and drifting nest shapes escape into the
+arena where nothing caps them.
+
+The consequence is that belief about shape positions stops decaying once the arena
+settles. Belief about tanks still decays, because tanks move constantly, so the
+staleness pressure survives through them rather than through terrain.
 
 **Bullet.** A circle with a velocity, a lifetime, a damage value, and an owner. Expires
 on timeout or contact.
@@ -407,18 +429,47 @@ pub trait Spawner: Send {
 pub struct Focus {
     pub id: FocusId,
     pub region: Region,                     // Disc, Rect, Annulus, WholeArena
+    pub exclude: Vec<Region>,               // off limits inside region. Placement only
     pub tier_weights: Vec<(ShapeTier, f32)>,
-    pub capacity: usize,                    // maximum alive from this focus
+    pub num_slow: usize,                    // alive count where the rate starts falling
+    pub num_max: usize,                     // alive count where respawning stops
+    pub count_by: CountBy,                  // Origin: made here. Resident: standing here
     pub respawn_per_sec: f32,
+    pub prefill: usize,                     // placed at match start, before tick one
     pub drift: DriftModel,
+    pub enabled: bool,
 }
 ```
 
+A focus has a population band rather than a capacity. Full rate at or below
+`num_slow`, nothing at or above `num_max`, a straight line between them. A filling
+area becomes a diminishing one before it becomes a closed one.
+
+`CountBy` is the field that changes a design claim rather than adding a knob. A focus
+maintains either a population or a place: `Origin` counts the shapes it made wherever
+they have drifted to, `Resident` counts the shapes standing in its region whoever made
+them. The nest only works as a place. A pentagon that leaves the disc stops counting
+and is replaced, so the centre stays packed instead of bleeding its shapes into the
+arena.
+
+`prefill` exists because an arena that starts empty and fills over three minutes is a
+different experiment from one that starts populated, and the populated one is the
+intended baseline.
+
 The composite spawner holds a `Vec<Focus>` and is driven entirely from config.
 
-- Uniform scatter is one focus covering the arena, low tier, high capacity.
-- The nest is one disc focus at the centre, high tier, low capacity, slow respawn.
-- Wings are two more foci at the northeast and southwest edge midpoints.
+- Uniform scatter is one focus covering the arena, squares and triangles, a wide band,
+  excluding nothing.
+- The nest is one disc focus at the centre, pentagons at five times the baseline rate
+  with a minority of common shapes, counted by residency, no drift.
+- Alpha pentagons are a second focus sharing the nest disc. Separate because one focus
+  carries one population band, and four alphas against forty-five pentagons at a
+  twentieth of the rate is a different band. It also makes "alphas spawn only at the
+  nest" structural rather than a weight somebody can edit. Placed in the inner third of
+  the disc, counted across the whole of it, which is what `exclude` applying to
+  placement alone is for.
+- Wings are two more foci at the northeast and southwest edge midpoints. Disabled by
+  default.
 
 Every spawned entity records its originating `FocusId` in the event log. That is what
 makes "which farming area did the team prioritise" a query rather than a guess.
@@ -509,11 +560,29 @@ Adding enum variants later is cheap. Migrating a database of a hundred recorded 
 is not. Reserve them now.
 
 ```rust
+pub struct TickRecord<'a> {
+    pub tick: Tick,
+    pub events: &'a [Event],
+    /// What the agents decided this tick. The replay payload.
+    pub inputs: &'a Inputs,
+    pub scores: [u32; 2],
+}
+
 pub trait Sink: Send {
-    fn accept(&mut self, tick: Tick, events: &[Event]);
+    fn accept(&mut self, rec: &TickRecord<'_>);
+    /// Commit whatever is buffered. Must be safe to call more than once.
     fn flush(&mut self);
 }
 ```
+
+A record rather than a slice of events. A replay is made of the inputs agents
+returned, and a replay of events alone reproduces nothing, so the bus carries events,
+inputs and scores together and each sink takes what it needs.
+
+Filtering is not divergence. The bus carries every variant to every sink; a sink
+declining to store what another already holds is the reason for having more than one.
+The database skips `ActionSubmitted` and `TickBegin` on exactly that ground — the
+replay file already holds both, ten times more compactly.
 
 Sinks: SQLite, replay file, WebSocket fan-out, live metrics.
 
@@ -523,8 +592,7 @@ Position updates are not events in this sense. Ten tanks plus two hundred shapes
 bullets at 25 Hz is roughly ten thousand rows per second. Putting that through the
 discrete event table makes the table useless for analysis.
 
-Split them. Discrete events go to `events`. Kinematics go to a separate wide, compact
-table written in batched transactions.
+Split them. Discrete events go to `events`.
 
 ---
 
@@ -551,19 +619,22 @@ CREATE TABLE events(
   PRIMARY KEY(tick, seq)
 );
 
-CREATE TABLE kinematics(
-  tick INTEGER,
-  entity INTEGER,
-  x REAL, y REAL,
-  vx REAL, vy REAL,
-  heading REAL
-);
-
 CREATE TABLE scores(tick INTEGER, team INTEGER, total INTEGER);
 
 CREATE INDEX idx_events_kind ON events(kind);
-CREATE INDEX idx_kin_entity  ON kinematics(entity, tick);
 ```
+
+There is no `kinematics` table. Trajectories were the largest thing a match produced by
+an order of magnitude, and they are pure derived data: re-simulating the replay rebuilds
+them at any rate and any filter. The `Kinematic` type and the recording path stay in
+`core`, gated off behind `WorldSpec::record_kinematics`, for a live-metrics sink or a
+materialise command later.
+
+A match therefore writes two artefacts, split by whether losing them to a code change
+matters. The replay file holds the seed, the config hash and the per-tick inputs, and
+stops reproducing when the physics changes. The database holds the discrete events —
+spawns, damage, kills, scores — which are the analytical facts and must outlive a code
+change. Ninety minutes is roughly 25 MB and 30 MB respectively.
 
 `payload` as JSON is right while the event shapes are still moving, and SQLite queries
 JSON natively. Normalize into typed columns once they settle. Export to Parquet when
@@ -607,8 +678,8 @@ Two view modes:
   discs, its comms links, and what it has never seen.
 
 The viewer must decode the replay file with the same decoder it uses for the live
-socket. Then a researcher hands someone a file and they watch the match in a browser
-with no server running. That is how results get shared.
+socket. Then a researcher hands someone a file and they watch the match in a browser by resimulating the match from the save file (because the save file has all the events saved).
+That is how results get shared.
 
 The only upward channel is `Command`, used when a human is operating a CC.
 
@@ -710,6 +781,12 @@ in the schema either way.
 **Respawn.** Fixed delay, or a cost paid in team score? A cost makes death a resource
 decision rather than an inconvenience, which is more interesting — but it interacts
 with the point target in ways that need thought.
+
+**Protocol version on additive changes.** `ReplayLine` gained `Inputs` and `Repeat`
+without moving `PROTOCOL_VERSION`, on the grounds that a decoder written against the
+old schema still reads everything it knew. Once matches are being shared, a version
+that does not move is a version that cannot tell two files apart. Bump on every wire
+change, or only on breaking ones?
 
 **Class choice timing.** At a level threshold, as in diep.io, or committed before the
 match starts? Pre-match commitment is a cleaner coordination problem. In-match choice

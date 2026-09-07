@@ -9,6 +9,62 @@ here as a suggestion and the specification is left untouched.
 
 ---
 
+## Specification Sync — 2026-09-07
+
+**Scope.** No code. The backlog of suggestions this log has accumulated since step 2
+was applied to `docs/DESIGN.md` and `AGENTS.md`, at the user's explicit direction and
+as a one-time exception to the ownership rule. The rule stands: proposals go here, and
+the specification is not edited from a session unless asked for by name.
+
+### Applied By The User Before This Session
+
+Rates at 25 Hz in both places. The one-tank-type paragraph under Progression. The v0
+note on irreversible class commitment. The constants-pass wording under Reference
+Material. Removal of the old `Sink` signature and of the kinematics sentence under
+Volume. The viewer paragraph, reworded to say the browser re-simulates the save file
+rather than to promise no server at all.
+
+### Applied This Session
+
+| Document | Change | Proposed in |
+|---|---|---|
+| `DESIGN.md` Arena | The nest is not a clearing. Scatter shapes fall inside the disc; the centre is the densest ground as well as the richest | Step 3 |
+| `DESIGN.md` Entities | Two tiers became four: square, triangle, pentagon, alpha pentagon | Step 3 |
+| `DESIGN.md` Entities | Shapes drift and then come to rest, and nest shapes do not drift. The consequence for belief decay is stated | Step 3 |
+| `DESIGN.md` Spawner | `Focus` as built: `exclude`, the `num_slow`/`num_max` band, `CountBy`, `prefill`, `enabled`. The alpha focus is described | Step 3 |
+| `DESIGN.md` Events | `Sink::accept` takes a `TickRecord` carrying events, inputs and scores. Filtering is not divergence | Step 4 |
+| `DESIGN.md` Storage | No `kinematics` table. The two artefacts a match writes, and which of them survives a physics change | Step 4 |
+| `DESIGN.md` Open Questions | Whether an additive wire change should move `PROTOCOL_VERSION` | Step 4 |
+| `AGENTS.md` Working Agreement | Respect `Cargo.lock`. Determinism depends on it | Step 2 |
+| `AGENTS.md` Build Order | Eight steps. `agent` at 4, `objective` at 6, with the dependency argument for both | Step 2 |
+| `AGENTS.md` Build Order | Position line: steps 1, 2, 3 and 5 complete, `agent` next. `events` is marked as built ahead of step 4 | Step 4 |
+| `AGENTS.md` Build Order | What is settled for v0: one tank type, no class choice, uniform radii, 25 Hz | Step 2 |
+
+### Not Applied
+
+**The `STATS.md` shape table needed nothing.** The proposal was to fill the table or
+delete the expectation of one. The expectation is already gone: the PROVENANCE block in
+`crates/core/src/constants.rs` states plainly that `docs/STATS.md` carries no shape
+table and that the shape numbers come from recall, which is why every one of them is
+marked PROVISIONAL. `STATS.md` is unchanged.
+
+**Wing placement still disagrees between the two documents and the code.** `DESIGN.md`
+puts the wings at the midpoints of the northeast and southwest *edges*, in both the
+Arena and the Spawner sections. `SpawnConfig::default` puts them halfway from the
+centre toward the two corners the bases do not occupy, and `ArenaSpec::wings` is still
+empty. Left alone because no session proposed a wording for it, and because which of
+the three is correct is a design call. It wants settling before the viewer draws
+either.
+
+### Carried Forward
+
+Unchanged from the previous entry: the contact chain-reaction threshold, alpha eviction
+under mass-weighted separation, the missing `config/arena.toml` and `config/match.toml`,
+and `Event::MatchEnd` never being emitted by `World`. The respawn question is still open
+and still wants settling before `objective`, which is now step 6.
+
+---
+
 ## Step 4 — `events` — 2026-09-04
 
 **Scope.** v0 build order step 4: the event bus, the `Sink` trait, a replay sink and
